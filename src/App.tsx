@@ -290,8 +290,31 @@ const MacroTracker = () => {
     setDailyEntries([...dailyEntries, entry]);
   };
 
-  const removeFoodEntry = (entryId: number) => {
-    setDailyEntries(dailyEntries.filter(entry => entry.id !== entryId));
+  const removeFoodEntry = async (entryId: number) => {
+    try {
+      // Update local state with filtered entries
+      const updatedEntries = dailyEntries.filter(entry => entry.id !== entryId);
+      setDailyEntries(updatedEntries);
+      
+      // Explicitly save to backend if authenticated
+      if (isAuthenticated) {
+        const saveResponse = await api.saveUserData({
+          customFoods,
+          dailyEntries: updatedEntries,
+          goals
+        });
+        
+        if (!saveResponse.success) {
+          console.error('Failed to save deletion:', saveResponse.error);
+          // Revert the deletion if save failed
+          setDailyEntries(dailyEntries);
+        }
+      }
+    } catch (error) {
+      console.error('Error removing food entry:', error);
+      // Revert the deletion on error
+      setDailyEntries(dailyEntries);
+    }
   };
 
   const updateGoals = () => {
