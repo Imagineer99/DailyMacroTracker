@@ -107,18 +107,10 @@ class ApiClient {
       };
     } catch (error: any) {
       console.error(`API ${method} ${url} error:`, error);
-
-      let errorMessage = 'An unexpected error occurred';
       
-      if (error.response?.data?.error) {
-        errorMessage = error.response.data.error;
-      } else if (error.message) {
-        errorMessage = error.message;
-      }
-
       return {
         success: false,
-        error: errorMessage,
+        error: error.response?.data?.error || 'Unable to connect to server. Please check your internet connection.'
       };
     }
   }

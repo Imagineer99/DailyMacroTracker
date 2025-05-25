@@ -21,24 +21,8 @@ const AuthForm: React.FC<AuthFormProps> = ({ onSuccess }) => {
   const validation = validateCredentials(username, password);
   const showValidation = (touched.username || touched.password) && !isLogin;
 
-  // Enhanced error messages
-  const getErrorMessage = (serverError: string) => {
-    if (serverError.toLowerCase().includes('password')) {
-      return 'Incorrect password. Please check your password and try again.';
-    }
-    if (serverError.toLowerCase().includes('username')) {
-      return 'Username not found. Please check your username or create an account.';
-    }
-    if (serverError.toLowerCase().includes('already exists')) {
-      return 'This username is already taken. Please choose a different one.';
-    }
-    return serverError;
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
-    setLoading(true);
 
     // Mark fields as touched
     setTouched({ username: true, password: true });
@@ -46,32 +30,45 @@ const AuthForm: React.FC<AuthFormProps> = ({ onSuccess }) => {
     // Client-side validation
     if (!username.trim() || !password.trim()) {
       setError('Please fill in all fields');
-      setLoading(false);
       return;
     }
 
     // Use validation from AuthContext
     if (!validation.valid) {
       setError(validation.errors[0]);
-      setLoading(false);
       return;
     }
+
+    setLoading(true);
 
     try {
       const result = isLogin 
         ? await login(username, password)
         : await register(username, password);
 
-      if (result.success) {
-        onSuccess?.();
-      } else {
-        setError(getErrorMessage(result.error || 'Authentication failed'));
+      if (!result.success) {
+        setError(result.error || 'Authentication failed');
+        setPassword(''); // Clear password field on error
+      } else if (onSuccess) {
+        onSuccess();
       }
     } catch (error) {
       setError('Network error. Please check your connection and try again.');
+      setPassword(''); // Clear password field on error
     } finally {
-      setLoading(false);
+      setLoading(false); // Always reset loading state
     }
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    if (name === 'username') {
+      setUsername(value);
+    } else if (name === 'password') {
+      setPassword(value);
+    }
+    
+    // Error clearing logic removed to make all errors sticky
   };
 
   const toggleMode = () => {
@@ -85,6 +82,9 @@ const AuthForm: React.FC<AuthFormProps> = ({ onSuccess }) => {
   const handleFieldBlur = (field: 'username' | 'password') => {
     setTouched(prev => ({ ...prev, [field]: true }));
   };
+
+  // Disable form inputs while loading
+  const isDisabled = loading;
 
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center py-6 px-4 sm:px-6 lg:px-8">
@@ -126,11 +126,11 @@ const AuthForm: React.FC<AuthFormProps> = ({ onSuccess }) => {
                   name="username"
                   type="text"
                   value={username}
-                  onChange={(e) => setUsername(e.target.value)}
+                  onChange={handleInputChange}
                   onBlur={() => handleFieldBlur('username')}
                   className="block w-full pl-9 sm:pl-10 pr-3 py-3 sm:py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-gray-400 focus:border-gray-400 outline-none text-sm sm:text-base transition-all touch-manipulation"
                   placeholder="Enter your username"
-                  disabled={loading}
+                  disabled={isDisabled}
                   autoComplete="username"
                   autoCapitalize="none"
                   autoCorrect="off"
@@ -166,18 +166,18 @@ const AuthForm: React.FC<AuthFormProps> = ({ onSuccess }) => {
                   name="password"
                   type={showPassword ? 'text' : 'password'}
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={handleInputChange}
                   onBlur={() => handleFieldBlur('password')}
                   className="block w-full pl-9 sm:pl-10 pr-12 py-3 sm:py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-gray-400 focus:border-gray-400 outline-none text-sm sm:text-base transition-all touch-manipulation"
                   placeholder="Enter your password"
-                  disabled={loading}
+                  disabled={isDisabled}
                   autoComplete={isLogin ? 'current-password' : 'new-password'}
                 />
                 <button
                   type="button"
                   className="absolute inset-y-0 right-0 pr-3 flex items-center touch-manipulation min-w-[44px] min-h-[44px] justify-center"
                   onClick={() => setShowPassword(!showPassword)}
-                  disabled={loading}
+                  disabled={isDisabled}
                   aria-label={showPassword ? 'Hide password' : 'Show password'}
                 >
                   {showPassword ? (
@@ -213,7 +213,7 @@ const AuthForm: React.FC<AuthFormProps> = ({ onSuccess }) => {
 
           {/* Error Message */}
           {error && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+            <div className="bg-red-50 border border-red-200 rounded-lg p-3 mt-4">
               <div className="flex items-start">
                 <AlertCircle className="h-4 w-4 text-red-600 mt-0.5 mr-2 flex-shrink-0" />
                 <p className="text-xs sm:text-sm text-red-600">{error}</p>
@@ -224,7 +224,7 @@ const AuthForm: React.FC<AuthFormProps> = ({ onSuccess }) => {
           {/* Submit Button */}
           <button
             type="submit"
-            disabled={loading || (!isLogin && !validation.valid)}
+            disabled={isDisabled || (!isLogin && !validation.valid)}
             className="w-full flex justify-center py-3 sm:py-3 px-4 border border-transparent rounded-lg shadow-sm text-sm sm:text-base font-medium text-white bg-gray-900 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all touch-manipulation min-h-[48px]"
           >
             {loading ? (
@@ -243,7 +243,7 @@ const AuthForm: React.FC<AuthFormProps> = ({ onSuccess }) => {
               type="button"
               onClick={toggleMode}
               className="text-sm text-gray-600 hover:text-gray-900 transition-colors touch-manipulation min-h-[44px] px-2"
-              disabled={loading}
+              disabled={isDisabled}
             >
               {isLogin 
                 ? "Don't have an account? Sign up" 

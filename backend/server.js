@@ -1,16 +1,30 @@
 const express = require('express');
 const cors = require('cors');
-const bcrypt = require('bcryptjs');
+const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const helmet = require('helmet');
 const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
 const fs = require('fs').promises;
 const path = require('path');
+const { dbHelpers } = require('./db');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
-const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
+const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key'; // Change in production
+
+// Authentication error messages
+const AUTH_ERRORS = {
+  INVALID_CREDENTIALS: 'Incorrect password. Please check your password and try again.',
+  RATE_LIMIT: 'Too many login attempts. For security reasons, please wait 5 minutes before trying again.',
+  USERNAME_EXISTS: 'This username is already taken. Please choose a different one.',
+  NETWORK_ERROR: 'Unable to connect to server. Please check your internet connection.',
+  VALIDATION: {
+    REQUIRED_FIELDS: 'Username and password are required',
+    USERNAME_LENGTH: 'Username must be at least 3 characters long',
+    PASSWORD_LENGTH: 'Password must be at least 6 characters long'
+  }
+};
 
 // Security middleware
 app.use(helmet({
@@ -28,9 +42,12 @@ app.use(limiter);
 
 // Auth rate limiting (stricter)
 const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
+  windowMs: 5 * 60 * 1000, // 5 minutes
   max: 5, // limit each IP to 5 auth requests per windowMs
-  message: 'Too many authentication attempts, please try again later.'
+  message: { error: AUTH_ERRORS.RATE_LIMIT },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true
 });
 
 // CORS configuration - now more restrictive since we're serving frontend
@@ -60,81 +77,6 @@ const checkBuildExists = async () => {
 // Serve React app static files
 app.use(express.static(buildPath));
 
-// Data file paths
-const USERS_FILE = path.join(__dirname, 'data', 'users.json');
-const DATA_DIR = path.join(__dirname, 'data');
-
-// Ensure data directory exists
-async function ensureDataDir() {
-  try {
-    await fs.mkdir(DATA_DIR, { recursive: true });
-    
-    // Initialize users file if it doesn't exist
-    try {
-      await fs.access(USERS_FILE);
-    } catch {
-      await fs.writeFile(USERS_FILE, JSON.stringify([], null, 2));
-    }
-  } catch (error) {
-    console.error('Failed to create data directory:', error);
-  }
-}
-
-// Load users from file
-async function loadUsers() {
-  try {
-    const data = await fs.readFile(USERS_FILE, 'utf8');
-    return JSON.parse(data);
-  } catch (error) {
-    console.error('Failed to load users:', error);
-    return [];
-  }
-}
-
-// Save users to file
-async function saveUsers(users) {
-  try {
-    await fs.writeFile(USERS_FILE, JSON.stringify(users, null, 2));
-    return true;
-  } catch (error) {
-    console.error('Failed to save users:', error);
-    return false;
-  }
-}
-
-// Load user data (nutrition entries, custom foods, goals)
-async function loadUserData(userId) {
-  const userDataFile = path.join(DATA_DIR, `user_${userId}.json`);
-  try {
-    const data = await fs.readFile(userDataFile, 'utf8');
-    return JSON.parse(data);
-  } catch (error) {
-    // Return default data structure if file doesn't exist
-    return {
-      customFoods: [],
-      dailyEntries: [],
-      goals: {
-        calories: 2200,
-        protein: 165,
-        carbs: 275,
-        fat: 73
-      }
-    };
-  }
-}
-
-// Save user data
-async function saveUserData(userId, data) {
-  const userDataFile = path.join(DATA_DIR, `user_${userId}.json`);
-  try {
-    await fs.writeFile(userDataFile, JSON.stringify(data, null, 2));
-    return true;
-  } catch (error) {
-    console.error('Failed to save user data:', error);
-    return false;
-  }
-}
-
 // Middleware to verify JWT token
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
@@ -160,24 +102,21 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
 
     // Basic validation
     if (!username || !password) {
-      return res.status(400).json({ error: 'Username and password are required' });
+      return res.status(400).json({ error: AUTH_ERRORS.VALIDATION.REQUIRED_FIELDS });
     }
 
     if (username.length < 3) {
-      return res.status(400).json({ error: 'Username must be at least 3 characters long' });
+      return res.status(400).json({ error: AUTH_ERRORS.VALIDATION.USERNAME_LENGTH });
     }
 
     if (password.length < 6) {
-      return res.status(400).json({ error: 'Password must be at least 6 characters long' });
+      return res.status(400).json({ error: AUTH_ERRORS.VALIDATION.PASSWORD_LENGTH });
     }
 
-    // Load existing users
-    const users = await loadUsers();
-
-    // Check if user already exists
-    const existingUser = users.find(user => user.username.toLowerCase() === username.toLowerCase());
+    // Check if user exists
+    const existingUser = dbHelpers.findUserByUsername(username);
     if (existingUser) {
-      return res.status(409).json({ error: 'Username already exists' });
+      return res.status(409).json({ error: AUTH_ERRORS.USERNAME_EXISTS });
     }
 
     // Hash password
@@ -185,24 +124,16 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, saltRounds);
 
     // Create new user
-    const newUser = {
-      id: Date.now().toString(),
-      username: username.toLowerCase(),
-      password: hashedPassword,
-      createdAt: new Date().toISOString()
-    };
+    const userId = Date.now().toString();
+    const success = dbHelpers.createUser(userId, username, hashedPassword);
 
-    // Save user
-    users.push(newUser);
-    const saved = await saveUsers(users);
-
-    if (!saved) {
+    if (!success) {
       return res.status(500).json({ error: 'Failed to create user' });
     }
 
     // Generate JWT token
     const token = jwt.sign(
-      { id: newUser.id, username: newUser.username },
+      { id: userId, username: username.toLowerCase() },
       JWT_SECRET,
       { expiresIn: '7d' }
     );
@@ -211,14 +142,14 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
       message: 'User created successfully',
       token,
       user: {
-        id: newUser.id,
-        username: newUser.username
+        id: userId,
+        username: username.toLowerCase()
       }
     });
 
   } catch (error) {
     console.error('Registration error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: AUTH_ERRORS.NETWORK_ERROR });
   }
 });
 
@@ -228,22 +159,19 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
 
     // Basic validation
     if (!username || !password) {
-      return res.status(400).json({ error: 'Username and password are required' });
+      return res.status(400).json({ error: AUTH_ERRORS.VALIDATION.REQUIRED_FIELDS });
     }
 
-    // Load users
-    const users = await loadUsers();
-
     // Find user
-    const user = users.find(u => u.username.toLowerCase() === username.toLowerCase());
+    const user = dbHelpers.findUserByUsername(username);
     if (!user) {
-      return res.status(401).json({ error: 'Invalid username or password' });
+      return res.status(401).json({ error: AUTH_ERRORS.INVALID_CREDENTIALS });
     }
 
     // Verify password
     const isValidPassword = await bcrypt.compare(password, user.password);
     if (!isValidPassword) {
-      return res.status(401).json({ error: 'Invalid username or password' });
+      return res.status(401).json({ error: AUTH_ERRORS.INVALID_CREDENTIALS });
     }
 
     // Generate JWT token
@@ -264,14 +192,17 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
 
   } catch (error) {
     console.error('Login error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: AUTH_ERRORS.NETWORK_ERROR });
   }
 });
 
 // Protected routes for nutrition data
 app.get('/api/user/data', authenticateToken, async (req, res) => {
   try {
-    const userData = await loadUserData(req.user.id);
+    const userData = dbHelpers.getUserData(req.user.id);
+    if (!userData) {
+      return res.status(500).json({ error: 'Failed to load user data' });
+    }
     res.json(userData);
   } catch (error) {
     console.error('Failed to load user data:', error);
@@ -283,15 +214,13 @@ app.post('/api/user/data', authenticateToken, async (req, res) => {
   try {
     const { customFoods, dailyEntries, goals } = req.body;
     
-    const userData = {
+    const success = dbHelpers.saveUserData(req.user.id, {
       customFoods: customFoods || [],
       dailyEntries: dailyEntries || [],
       goals: goals || { calories: 2200, protein: 165, carbs: 275, fat: 73 }
-    };
+    });
 
-    const saved = await saveUserData(req.user.id, userData);
-    
-    if (!saved) {
+    if (!success) {
       return res.status(500).json({ error: 'Failed to save user data' });
     }
 
@@ -304,7 +233,10 @@ app.post('/api/user/data', authenticateToken, async (req, res) => {
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'OK', timestamp: new Date().toISOString() });
+  res.json({
+    status: 'healthy',
+    timestamp: new Date().toISOString()
+  });
 });
 
 // Serve React app for all non-API routes (SPA routing)
@@ -351,23 +283,11 @@ app.use((err, req, res, next) => {
 
 // Initialize server
 async function startServer() {
-  await ensureDataDir();
-  
   const buildExists = await checkBuildExists();
   
   app.listen(PORT, () => {
-    console.log(`🚀 Server running on port ${PORT}`);
-    console.log(`📊 Nutrition Tracker API ready`);
-    console.log(`🔒 Authentication enabled`);
-    if (buildExists) {
-      console.log(`🌐 Frontend served at http://localhost:${PORT}`);
-    } else {
-      console.log(`⚠️  Frontend build missing - run "npm run build" first`);
-    }
+    console.log(`Server running on port ${PORT}`);
   });
 }
 
-startServer().catch(error => {
-  console.error('Failed to start server:', error);
-  process.exit(1);
-}); 
+startServer();

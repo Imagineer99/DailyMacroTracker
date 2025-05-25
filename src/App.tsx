@@ -1052,14 +1052,17 @@ const App: React.FC = () => {
 const AuthenticatedApp: React.FC = () => {
   const { isAuthenticated, loading } = useAuth();
 
+  // Show loading spinner while checking authentication
   if (loading) {
     return <LoadingSpinner />;
   }
 
+  // Show login form if not authenticated
   if (!isAuthenticated) {
     return <AuthForm />;
   }
 
+  // Show main app if authenticated
   return <MacroTracker />;
 };
 

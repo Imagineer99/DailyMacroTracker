@@ -113,28 +113,44 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   // Initialize auth state from localStorage
   useEffect(() => {
-    const storedToken = localStorage.getItem('authToken');
-    const storedUser = localStorage.getItem('authUser');
-    
-    if (storedToken && storedUser) {
-      try {
-        const userData = JSON.parse(storedUser);
-        setToken(storedToken);
-        setUser(userData);
-        api.setAuthToken(storedToken);
-        
-        // Check token validity
-        checkTokenValidity();
-      } catch (error) {
-        console.error('Failed to parse stored user data:', error);
-        localStorage.removeItem('authToken');
-        localStorage.removeItem('authUser');
-        setLoading(false);
+    const initializeAuth = async () => {
+      const storedToken = localStorage.getItem('authToken');
+      const storedUser = localStorage.getItem('authUser');
+      
+      if (storedToken && storedUser) {
+        try {
+          const userData = JSON.parse(storedUser);
+          
+          // Check if token is expired
+          if (isTokenExpired(storedToken)) {
+            console.log('Token expired, logging out');
+            logout();
+            setLoading(false);
+            return;
+          }
+
+          // Set initial state
+          setToken(storedToken);
+          setUser(userData);
+          api.setAuthToken(storedToken);
+          
+          // Verify token with backend
+          const response = await api.getUserData();
+          if (!response.success) {
+            console.log('Token invalid on server, logging out');
+            logout();
+          }
+        } catch (error) {
+          console.error('Failed to initialize auth state:', error);
+          logout();
+        }
       }
-    } else {
+      
       setLoading(false);
-    }
-  }, [checkTokenValidity]);
+    };
+
+    initializeAuth();
+  }, []);
 
   // Set up token expiration check interval
   useEffect(() => {
@@ -158,29 +174,33 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
 
     try {
-      setLoading(true);
       const response = await api.login(username.trim(), password);
       
       if (response.success && response.data) {
         const { token: newToken, user: userData } = response.data;
         
+        // Update auth state only after successful login
         setToken(newToken);
         setUser(userData);
-        
         localStorage.setItem('authToken', newToken);
         localStorage.setItem('authUser', JSON.stringify(userData));
-        
         api.setAuthToken(newToken);
         
         return { success: true };
       } else {
-        return { success: false, error: response.error || 'Login failed' };
+        // Return error from server
+        return { 
+          success: false, 
+          error: response.error || 'Invalid username or password'
+        };
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Login error:', error);
-      return { success: false, error: 'An unexpected error occurred' };
-    } finally {
-      setLoading(false);
+      // Return error from server if available
+      return { 
+        success: false, 
+        error: error.response?.data?.error || 'An unexpected error occurred. Please try again.'
+      };
     }
   };
 

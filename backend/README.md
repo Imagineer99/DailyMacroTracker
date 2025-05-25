@@ -1,6 +1,6 @@
 # Nutrition Tracker Backend API
 
-A secure Express.js backend for the Nutrition Tracker application with JWT authentication and proper password hashing.
+A secure Express.js backend for the Nutrition Tracker application with JWT authentication.
 
 ## Features
 
@@ -72,7 +72,6 @@ User data is stored in JSON files:
 
 This backend is designed to easily migrate to:
 - Database storage (PostgreSQL, MongoDB, etc.)
-- Cloud hosting (Vercel, Railway, Heroku)
 - Advanced features (email verification, password reset)
 
 ## Development Notes
@@ -80,4 +79,14 @@ This backend is designed to easily migrate to:
 - Uses file-based storage for simplicity
 - Production-ready security measures
 - Easily scalable architecture
-- Comprehensive error handling 
+- Comprehensive error handling
+
+
+# Feature Ideas 
+- Consistency Insight e.g AI-generated tip "(e.g., “You tend to under-eat carbs on training days”)"
+- AI-powered workout routine generator
+- Insights and analytics on user's historical data, and a prediction of their future progress
+- Email integration for notifications, reminders and reports (we need to implement an automated email service)
+- Multi-language support
+- A path to monetize the app by providing a PRO version with more features and priority support
+- Quick and easy way to share progress with friends or social media (e.g., export data to PDF, CSV, image or post to social media)
