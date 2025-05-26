@@ -24,12 +24,14 @@ const db = new Database(path.join(__dirname, 'data', 'nutrition.db'), {
     key: encryptionKey
 });
 
-// Set secure pragmas
+// Set secure pragmas for production performance
 db.pragma('journal_mode = WAL'); // Write-Ahead Logging for better concurrency
 db.pragma('foreign_keys = ON');
-db.pragma('synchronous = FULL'); // Ensure data integrity
+db.pragma('synchronous = NORMAL'); // Balance between performance and safety
 db.pragma('temp_store = MEMORY'); // Store temp tables in memory
-db.pragma('mmap_size = 30000000000'); // 30GB memory map
+db.pragma('mmap_size = 268435456'); // 256MB memory map (more reasonable)
+db.pragma('cache_size = 10000'); // 10MB cache
+db.pragma('wal_autocheckpoint = 1000'); // Checkpoint every 1000 pages
 
 // Create tables if they don't exist
 function initializeDatabase() {
@@ -199,42 +201,9 @@ const dbHelpers = {
         const { customFoods, dailyEntries, goals } = data;
 
         try {
-            // Start a transaction
+            // Start a transaction for atomic operations
             const transaction = db.transaction(() => {
-                // Clear existing custom foods and daily entries
-                db.prepare('DELETE FROM custom_foods WHERE user_id = ?').run(userId);
-                db.prepare('DELETE FROM daily_entries WHERE user_id = ?').run(userId);
-
-                // Insert new custom foods
-                for (const food of customFoods) {
-                    statements.insertCustomFood.run(
-                        userId,
-                        food.name,
-                        food.calories,
-                        food.protein,
-                        food.carbs,
-                        food.fat,
-                        food.serving
-                    );
-                }
-
-                // Insert new daily entries
-                for (const entry of dailyEntries) {
-                    statements.insertDailyEntry.run(
-                        userId,
-                        entry.foodId || entry.food_id,
-                        entry.name,
-                        entry.servings,
-                        entry.calories,
-                        entry.protein,
-                        entry.carbs,
-                        entry.fat,
-                        entry.date,
-                        entry.mealTime || entry.meal_time || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                    );
-                }
-
-                // Update goals
+                // Update goals (this is efficient with UPSERT)
                 statements.upsertGoals.run(
                     userId,
                     goals.calories,
@@ -242,6 +211,47 @@ const dbHelpers = {
                     goals.carbs,
                     goals.fat
                 );
+
+                // For custom foods and daily entries, we'll still do full replace
+                // since the frontend sends complete datasets
+                // TODO: Optimize to incremental updates when frontend supports it
+                
+                // Clear existing custom foods and daily entries
+                db.prepare('DELETE FROM custom_foods WHERE user_id = ?').run(userId);
+                db.prepare('DELETE FROM daily_entries WHERE user_id = ?').run(userId);
+
+                // Insert new custom foods in batch
+                if (customFoods && customFoods.length > 0) {
+                    for (const food of customFoods) {
+                        statements.insertCustomFood.run(
+                            userId,
+                            food.name,
+                            food.calories,
+                            food.protein,
+                            food.carbs,
+                            food.fat,
+                            food.serving
+                        );
+                    }
+                }
+
+                // Insert new daily entries in batch
+                if (dailyEntries && dailyEntries.length > 0) {
+                    for (const entry of dailyEntries) {
+                        statements.insertDailyEntry.run(
+                            userId,
+                            entry.foodId || entry.food_id,
+                            entry.name,
+                            entry.servings,
+                            entry.calories,
+                            entry.protein,
+                            entry.carbs,
+                            entry.fat,
+                            entry.date,
+                            entry.mealTime || entry.meal_time || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                        );
+                    }
+                }
             });
 
             // Execute the transaction

@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 console.log('AuthForm rendered');
 import { Eye, EyeOff, User, Lock, UserPlus, LogIn, AlertCircle, CheckCircle } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import '../styles/login.css';
 
 interface AuthFormProps {
   onSuccess?: () => void;
