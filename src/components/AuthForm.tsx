@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 console.log('AuthForm rendered');
 import { Eye, EyeOff, User, Lock, UserPlus, LogIn, AlertCircle, CheckCircle } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import '../styles/login.css';
 
 interface AuthFormProps {
   onSuccess?: () => void;
@@ -93,7 +94,7 @@ const AuthForm: React.FC<AuthFormProps> = ({ onSuccess }) => {
 
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center py-6 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-md w-full space-y-6 sm:space-y-8">
+      <div className="max-w-md w-full space-y-6 sm:space-y-8 login-form">
         {/* Header */}
         <div className="text-center">
           <div className="mx-auto w-12 h-12 sm:w-16 sm:h-16 bg-gray-900 rounded-xl flex items-center justify-center mb-4 sm:mb-6">

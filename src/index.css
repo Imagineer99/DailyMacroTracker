@@ -76,11 +76,13 @@ body {
 } 
 
 .max-w-md {
-  height: 39rem;
+  height: 25rem;
 }
 
 .gender-options {
   margin-top: 19px;
 }
 
-
+.login-form {
+  height: 40rem;
+}
