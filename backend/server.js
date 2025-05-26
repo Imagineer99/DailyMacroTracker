@@ -28,7 +28,20 @@ const AUTH_ERRORS = {
 
 // Security middleware
 app.use(helmet({
-  contentSecurityPolicy: false, // Allow serving React app
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"], // Allow inline styles for React
+      scriptSrc: ["'self'"],
+      imgSrc: ["'self'", "data:", "https:"],
+      connectSrc: ["'self'"],
+      fontSrc: ["'self'"],
+      objectSrc: ["'none'"],
+      mediaSrc: ["'self'"],
+      frameSrc: ["'none'"],
+    },
+  },
+  crossOriginEmbedderPolicy: false, // Allow React dev tools
 }));
 app.use(morgan('combined'));
 

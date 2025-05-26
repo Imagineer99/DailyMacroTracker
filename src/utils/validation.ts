@@ -16,8 +16,10 @@ export interface FoodData {
 export interface CalculatorData {
   age: number;
   height: number;
+  heightInches?: number;
   weight: number;
   gender: 'male' | 'female';
+  unitSystem: 'imperial' | 'metric';
 }
 
 export interface GoalsData {
@@ -139,27 +141,60 @@ export const validateCalculatorData = (data: CalculatorData): ValidationResult =
     errors.push('Age must be 80 years or less');
   }
 
-  // Height validation (in feet)
-  if (!data.height || isNaN(data.height)) {
-    errors.push('Height is required');
-  } else if (data.height < 3) {
-    errors.push('Height must be at least 3 feet');
-  } else if (data.height > 8) {
-    errors.push('Height must be 8 feet or less');
+  // Height validation
+  if (data.unitSystem === 'imperial') {
+    // Imperial: feet and inches
+    if (!data.height || isNaN(data.height)) {
+      errors.push('Height (feet) is required');
+    } else if (data.height < 3) {
+      errors.push('Height must be at least 3 feet');
+    } else if (data.height > 8) {
+      errors.push('Height must be 8 feet or less');
+    }
+    
+    if (data.heightInches !== undefined && (isNaN(data.heightInches) || data.heightInches < 0 || data.heightInches >= 12)) {
+      errors.push('Height (inches) must be between 0 and 11');
+    }
+  } else {
+    // Metric: centimeters
+    if (!data.height || isNaN(data.height)) {
+      errors.push('Height is required');
+    } else if (data.height < 100) {
+      errors.push('Height must be at least 100 cm');
+    } else if (data.height > 250) {
+      errors.push('Height must be 250 cm or less');
+    }
   }
 
-  // Weight validation (in pounds)
-  if (!data.weight || isNaN(data.weight)) {
-    errors.push('Weight is required');
-  } else if (data.weight < 50) {
-    errors.push('Weight must be at least 50 pounds');
-  } else if (data.weight > 1000) {
-    errors.push('Weight must be 1000 pounds or less');
+  // Weight validation
+  if (data.unitSystem === 'imperial') {
+    // Imperial: pounds
+    if (!data.weight || isNaN(data.weight)) {
+      errors.push('Weight is required');
+    } else if (data.weight < 50) {
+      errors.push('Weight must be at least 50 pounds');
+    } else if (data.weight > 1000) {
+      errors.push('Weight must be 1000 pounds or less');
+    }
+  } else {
+    // Metric: kilograms
+    if (!data.weight || isNaN(data.weight)) {
+      errors.push('Weight is required');
+    } else if (data.weight < 20) {
+      errors.push('Weight must be at least 20 kg');
+    } else if (data.weight > 450) {
+      errors.push('Weight must be 450 kg or less');
+    }
   }
 
   // Gender validation
   if (!data.gender || !['male', 'female'].includes(data.gender)) {
     errors.push('Gender selection is required');
+  }
+
+  // Unit system validation
+  if (!data.unitSystem || !['imperial', 'metric'].includes(data.unitSystem)) {
+    errors.push('Unit system selection is required');
   }
 
   return {
@@ -227,7 +262,16 @@ export const validateGoals = (goals: GoalsData): ValidationResult => {
 
 // Utility function to sanitize string inputs
 export const sanitizeString = (input: string): string => {
-  return input.trim().replace(/[<>]/g, '');
+  return input.trim().replace(/[<>'"&]/g, (match) => {
+    const escapeMap: { [key: string]: string } = {
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#x27;',
+      '&': '&amp;'
+    };
+    return escapeMap[match] || match;
+  });
 };
 
 // Utility function to format validation errors for display
