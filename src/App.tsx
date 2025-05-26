@@ -108,8 +108,10 @@ const MacroTracker = () => {
     age: 25,
     gender: 'male' as 'male' | 'female',
     height: 5.83,
+    heightInches: 10, // for feet/inches input
     weight: 165,
-    activityLevel: 'moderate' as keyof typeof activityMultipliers
+    activityLevel: 'moderate' as keyof typeof activityMultipliers,
+    unitSystem: 'imperial' as 'imperial' | 'metric'
   });
   const [calculatorResults, setCalculatorResults] = useState<{
     maintenance: number;
@@ -593,10 +595,21 @@ const MacroTracker = () => {
     // Clear validation errors if validation passes
     setCalculatorValidationErrors([]);
     
-    // Mifflin-St Jeor Equation
+    // Mifflin-St Jeor Equation (requires metric units)
     let bmr;
-    const heightInCm = calculatorData.height * 30.48; // convert feet to cm
-    const weightInKg = calculatorData.weight * 0.453592; // convert lbs to kg
+    let heightInCm: number;
+    let weightInKg: number;
+    
+    if (calculatorData.unitSystem === 'imperial') {
+      // Convert imperial to metric
+      const totalHeightInFeet = calculatorData.height + (calculatorData.heightInches / 12);
+      heightInCm = totalHeightInFeet * 30.48; // convert feet to cm
+      weightInKg = calculatorData.weight * 0.453592; // convert lbs to kg
+    } else {
+      // Already in metric
+      heightInCm = calculatorData.height; // height is in cm for metric
+      weightInKg = calculatorData.weight; // weight is in kg for metric
+    }
     
     if (calculatorData.gender === 'male') {
       bmr = 10 * weightInKg + 6.25 * heightInCm - 5 * calculatorData.age + 5;
@@ -618,7 +631,14 @@ const MacroTracker = () => {
 
   const applyCalculatedGoals = (calorieTarget: number) => {
     // Calculate macros based on standard ratios
-    const protein = Math.round(calculatorData.weight * 1); // 1g per lb bodyweight
+    let protein: number;
+    
+    if (calculatorData.unitSystem === 'imperial') {
+      protein = Math.round(calculatorData.weight * 1); // 1g per lb bodyweight
+    } else {
+      protein = Math.round(calculatorData.weight * 2.2); // 1g per lb = 2.2g per kg
+    }
+    
     const fat = Math.round(calorieTarget * 0.25 / 9); // 25% of calories from fat
     const carbs = Math.round((calorieTarget - (protein * 4) - (fat * 9)) / 4); // remaining calories from carbs
     
@@ -681,9 +701,8 @@ const MacroTracker = () => {
     );
   };
 
-  const FoodCard = ({ food, onAdd, onEdit, onDelete, isCustom = false }: {
+  const FoodCard = ({ food, onEdit, onDelete, isCustom = false }: {
     food: Food;
-    onAdd: (food: Food) => Promise<void>;
     onEdit?: (food: Food) => void;
     onDelete?: (foodId: number) => void;
     isCustom?: boolean;
@@ -773,7 +792,22 @@ const MacroTracker = () => {
     return date.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
   };
 
-    return (    <div className="min-h-screen bg-gray-50">      {/* Header */}      <header className="bg-white border-b border-gray-200 sticky top-0 z-40">        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-6">          <div className="flex items-center justify-between">            <div className="flex items-center gap-3 sm:gap-4">              <div className="w-8 h-8 bg-gray-900 rounded-lg flex items-center justify-center">                <Target className="text-white" size={18} />              </div>              <h1 className="text-lg sm:text-xl font-light text-gray-900 tracking-tight">                Nutrition Tracker              </h1>            </div>                        <div className="flex items-center gap-2 sm:gap-6">
+  return (
+    <div className="min-h-screen bg-gray-50">
+      {/* Header */}
+      <header className="bg-white border-b border-gray-200 sticky top-0 z-40">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3 sm:gap-4">
+              <div className="w-8 h-8 bg-gray-900 rounded-lg flex items-center justify-center">
+                <Target className="text-white" size={18} />
+              </div>
+              <h1 className="text-lg sm:text-xl font-light text-gray-900 tracking-tight">
+                Nutrition Tracker
+              </h1>
+            </div>
+            
+            <div className="flex items-center gap-2 sm:gap-6">
               {/* User Info */}
               <div className="hidden sm:flex items-center gap-2 text-sm text-gray-600">
                 <User size={16} />
@@ -798,8 +832,39 @@ const MacroTracker = () => {
                 <span className="hidden sm:inline">Logout</span>
               </button>
             </div>
-          </div>        </div>      </header>      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-8">
-                {/* Navigation */}        <nav className="mb-6 sm:mb-10 bg-white border border-gray-200 rounded-lg p-1">          <div className="grid grid-cols-2 sm:flex gap-1">            {[              { id: 'dashboard', label: 'Overview', icon: Home },              { id: 'add-food', label: 'Add Food', icon: Plus },              { id: 'history', label: 'Analytics', icon: BarChart3 },              { id: 'goals', label: 'Goals', icon: Target }            ].map(tab => {              const Icon = tab.icon;              return (                <button                  key={tab.id}                  onClick={() => setActiveTab(tab.id)}                  className={`flex items-center justify-center sm:justify-start gap-2 px-3 sm:px-6 py-3 rounded-lg text-xs sm:text-sm font-medium transition-all ${                    activeTab === tab.id                      ? 'bg-gray-900 text-white'                      : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'                  }`}                >                  <Icon size={16} />                  <span className="hidden sm:inline">{tab.label}</span>                  <span className="sm:hidden text-xs">{tab.label.split(' ')[0]}</span>                </button>              );            })}          </div>        </nav>
+          </div>
+        </div>
+      </header>
+      
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-8">
+        {/* Navigation */}
+        <nav className="mb-6 sm:mb-10 bg-white border border-gray-200 rounded-lg p-1">
+          <div className="grid grid-cols-2 sm:flex gap-1">
+            {[
+              { id: 'dashboard', label: 'Overview', icon: Home },
+              { id: 'add-food', label: 'Add Food', icon: Plus },
+              { id: 'history', label: 'Analytics', icon: BarChart3 },
+              { id: 'goals', label: 'Goals', icon: Target }
+            ].map(tab => {
+              const Icon = tab.icon;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`flex items-center justify-center sm:justify-start gap-2 px-3 sm:px-6 py-3 rounded-lg text-xs sm:text-sm font-medium transition-all ${
+                    activeTab === tab.id
+                      ? 'bg-gray-900 text-white'
+                      : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                  }`}
+                >
+                  <Icon size={16} />
+                  <span className="hidden sm:inline">{tab.label}</span>
+                  <span className="sm:hidden text-xs">{tab.label.split(' ')[0]}</span>
+                </button>
+              );
+            })}
+          </div>
+        </nav>
 
         {/* Dashboard Tab */}
         {activeTab === 'dashboard' && (
@@ -810,7 +875,34 @@ const MacroTracker = () => {
               onCleanup={manualCleanupCorruptedEntries}
             />
             
-                        {/* Daily Overview */}            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">              <MacroProgressBar                label="Calories"                current={dailyTotals.calories}                goal={goals.calories}                unit=""                gradient="bg-gradient-to-r from-orange-400 to-red-500"              />              <MacroProgressBar                label="Protein"                current={dailyTotals.protein}                goal={goals.protein}                gradient="bg-gradient-to-r from-blue-400 to-blue-600"              />              <MacroProgressBar                label="Carbs"                current={dailyTotals.carbs}                goal={goals.carbs}                gradient="bg-gradient-to-r from-green-400 to-emerald-600"              />              <MacroProgressBar                label="Fat"                current={dailyTotals.fat}                goal={goals.fat}                gradient="bg-gradient-to-r from-purple-400 to-purple-600"              />            </div>
+            {/* Daily Overview */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
+              <MacroProgressBar
+                label="Calories"
+                current={dailyTotals.calories}
+                goal={goals.calories}
+                unit=""
+                gradient="bg-gradient-to-r from-orange-400 to-red-500"
+              />
+              <MacroProgressBar
+                label="Protein"
+                current={dailyTotals.protein}
+                goal={goals.protein}
+                gradient="bg-gradient-to-r from-blue-400 to-blue-600"
+              />
+              <MacroProgressBar
+                label="Carbs"
+                current={dailyTotals.carbs}
+                goal={goals.carbs}
+                gradient="bg-gradient-to-r from-green-400 to-emerald-600"
+              />
+              <MacroProgressBar
+                label="Fat"
+                current={dailyTotals.fat}
+                goal={goals.fat}
+                gradient="bg-gradient-to-r from-purple-400 to-purple-600"
+              />
+            </div>
 
             {/* Meals Summary */}
             <div className="bg-white border border-gray-200 rounded-lg">
@@ -879,7 +971,29 @@ const MacroTracker = () => {
         {/* Add Food Tab */}
         {activeTab === 'add-food' && (
           <div className="space-y-8">
-                        {/* Search and Add Custom Food Header */}            <div className="bg-white border border-gray-200 rounded-lg p-4 sm:p-6">              <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 items-stretch sm:items-center">                <div className="relative flex-1">                  <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />                  <input                    type="text"                    placeholder="Search food database..."                    value={searchTerm}                    onChange={(e) => setSearchTerm(e.target.value)}                    className="w-full pl-12 pr-4 py-3 border border-gray-200 rounded-lg focus:ring-1 focus:ring-gray-400 focus:border-gray-400 outline-none text-sm"                  />                </div>                <button                  onClick={() => setShowAddFoodForm(true)}                  className="px-4 sm:px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors inline-flex items-center justify-center gap-2 whitespace-nowrap"                >                  <UserPlus size={16} />                  <span className="hidden sm:inline">Add Custom Food</span>                  <span className="sm:hidden">Add Food</span>                </button>              </div>            </div>
+            {/* Search and Add Custom Food Header */}
+            <div className="bg-white border border-gray-200 rounded-lg p-4 sm:p-6">
+              <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 items-stretch sm:items-center">
+                <div className="relative flex-1">
+                  <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
+                  <input
+                    type="text"
+                    placeholder="Search food database..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="w-full pl-12 pr-4 py-3 border border-gray-200 rounded-lg focus:ring-1 focus:ring-gray-400 focus:border-gray-400 outline-none text-sm"
+                  />
+                </div>
+                <button
+                  onClick={() => setShowAddFoodForm(true)}
+                  className="px-4 sm:px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors inline-flex items-center justify-center gap-2 whitespace-nowrap"
+                >
+                  <UserPlus size={16} />
+                  <span className="hidden sm:inline">Add Custom Food</span>
+                  <span className="sm:hidden">Add Food</span>
+                </button>
+              </div>
+            </div>
 
             {/* Add/Edit Custom Food Form */}
             {showAddFoodForm && (
@@ -1172,7 +1286,17 @@ const MacroTracker = () => {
                   <h2 className="text-lg font-medium text-gray-900">My Foods</h2>
                   <span className="text-sm text-gray-500">({filteredCustomFoods.length})</span>
                 </div>
-                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">                  {filteredCustomFoods.map(food => (                    <FoodCard                      key={food.id}                      food={food}                      onAdd={addFoodEntry}                      onEdit={startEditingFood}                      onDelete={deleteCustomFood}                      isCustom={true}                    />                  ))}                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
+                  {filteredCustomFoods.map(food => (
+                    <FoodCard
+                      key={food.id}
+                      food={food}
+                      onEdit={startEditingFood}
+                      onDelete={deleteCustomFood}
+                      isCustom={true}
+                    />
+                  ))}
+                </div>
               </div>
             )}
 
@@ -1184,7 +1308,15 @@ const MacroTracker = () => {
                   <h2 className="text-lg font-medium text-gray-900">Food Database</h2>
                   <span className="text-sm text-gray-500">({filteredBuiltInFoods.length})</span>
                 </div>
-                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">                  {filteredBuiltInFoods.map(food => (                    <FoodCard                      key={food.id}                      food={food}                      onAdd={addFoodEntry}                      isCustom={false}                    />                  ))}                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
+                  {filteredBuiltInFoods.map(food => (
+                    <FoodCard
+                      key={food.id}
+                      food={food}
+                      isCustom={false}
+                    />
+                  ))}
+                </div>
               </div>
             )}
 
@@ -1261,78 +1393,190 @@ const MacroTracker = () => {
             <div className="p-6">
               {showCalculator && !calculatorResults ? (
                 // Calorie Calculator
-                <div className="space-y-6">
-                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-                    <p className="text-sm text-blue-700">
-                      Modify the values and click the Calculate button to get personalized calorie recommendations
-                    </p>
+                <div className="space-y-8">
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-5">
+                    <div className="flex items-start gap-3">
+                      <div className="w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
+                        <span className="text-white text-xs font-bold">i</span>
+                      </div>
+                      <p className="text-sm text-blue-700 leading-relaxed">
+                        Modify the values and click the Calculate button to get personalized calorie recommendations
+                      </p>
+                    </div>
                   </div>
 
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">                    <div>                      <label className="block text-sm font-medium text-gray-700 mb-2">                        Age                      </label>
-                      <input
-                        type="number"
-                        value={calculatorData.age}
-                        onChange={(e) => setCalculatorData({...calculatorData, age: Number(e.target.value)})}
-                        className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-1 focus:ring-gray-400 focus:border-gray-400 outline-none text-sm"
-                        min="15"
-                        max="80"
-                      />
+                  {/* Unit System Toggle */}
+                  <div className="mb-6">
+                    <label className="block text-sm font-medium text-gray-700 mb-3">
+                      Unit System
+                    </label>
+                    <div className="flex gap-6">
+                      <label className="flex items-center cursor-pointer">
+                        <input
+                          type="radio"
+                          name="unitSystem"
+                          value="imperial"
+                          checked={calculatorData.unitSystem === 'imperial'}
+                          onChange={(e) => setCalculatorData({
+                            ...calculatorData, 
+                            unitSystem: e.target.value as 'imperial' | 'metric',
+                            // Reset height and weight when switching units
+                            height: e.target.value === 'imperial' ? 5.83 : 175,
+                            heightInches: e.target.value === 'imperial' ? 10 : 0,
+                            weight: e.target.value === 'imperial' ? 165 : 75
+                          })}
+                          className="mr-3 w-4 h-4 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span className="text-sm font-medium text-gray-900">Imperial</span>
+                      </label>
+                      <label className="flex items-center cursor-pointer">
+                        <input
+                          type="radio"
+                          name="unitSystem"
+                          value="metric"
+                          checked={calculatorData.unitSystem === 'metric'}
+                          onChange={(e) => setCalculatorData({
+                            ...calculatorData, 
+                            unitSystem: e.target.value as 'imperial' | 'metric',
+                            // Reset height and weight when switching units
+                            height: e.target.value === 'imperial' ? 5.83 : 175,
+                            heightInches: e.target.value === 'imperial' ? 10 : 0,
+                            weight: e.target.value === 'imperial' ? 165 : 75
+                          })}
+                          className="mr-3 w-4 h-4 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span className="text-sm font-medium text-gray-900">Metric</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 sm:gap-8">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Age
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          value={calculatorData.age}
+                          onChange={(e) => setCalculatorData({...calculatorData, age: Number(e.target.value)})}
+                          className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm"
+                          min="15"
+                          max="80"
+                          placeholder="25"
+                        />
+                        <span className="absolute right-3 top-1/2 transform -translate-y-1/2 text-sm text-gray-500">years</span>
+                      </div>
                       <p className="text-xs text-gray-500 mt-1">ages 15 - 80</p>
                     </div>
 
-                    <div>
+                    <div className="gender-selection">
                       <label className="block text-sm font-medium text-gray-700 mb-2">
                         Gender
                       </label>
-                      <div className="flex gap-4">
-                        <label className="flex items-center">
+                      <div className="gender-options flex gap-6">
+                        <label className="gender-option gender-male flex items-center cursor-pointer">
                           <input
                             type="radio"
                             name="gender"
                             value="male"
                             checked={calculatorData.gender === 'male'}
                             onChange={(e) => setCalculatorData({...calculatorData, gender: e.target.value as 'male' | 'female'})}
-                            className="mr-2"
+                            className="gender-radio mr-3 w-4 h-4 text-blue-600 focus:ring-blue-500"
                           />
-                          Male
+                          <span className="gender-label text-sm font-medium text-gray-900">Male</span>
                         </label>
-                        <label className="flex items-center">
+                        <label className="gender-option gender-female flex items-center cursor-pointer">
                           <input
                             type="radio"
                             name="gender"
                             value="female"
                             checked={calculatorData.gender === 'female'}
                             onChange={(e) => setCalculatorData({...calculatorData, gender: e.target.value as 'male' | 'female'})}
-                            className="mr-2"
+                            className="gender-radio mr-3 w-4 h-4 text-blue-600 focus:ring-blue-500"
                           />
-                          Female
+                          <span className="gender-label text-sm font-medium text-gray-900">Female</span>
                         </label>
                       </div>
                     </div>
 
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Height (feet)
-                      </label>
-                      <input
-                        type="number"
-                        step="0.1"
-                        value={calculatorData.height}
-                        onChange={(e) => setCalculatorData({...calculatorData, height: Number(e.target.value)})}
-                        className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-1 focus:ring-gray-400 focus:border-gray-400 outline-none text-sm"
-                      />
-                    </div>
+                    {/* Height Input - Different for Imperial vs Metric */}
+                    {calculatorData.unitSystem === 'imperial' ? (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Height
+                        </label>
+                        <div className="flex gap-3">
+                          <div className="relative flex-1">
+                            <input
+                              type="number"
+                              value={calculatorData.height}
+                              onChange={(e) => {
+                                const value = e.target.value;
+                                // Only allow single digit numbers between 3-8
+                                if (value === '' || (value.length === 1 && /^[3-8]$/.test(value))) {
+                                  setCalculatorData({...calculatorData, height: value === '' ? 0 : Number(value)});
+                                }
+                              }}
+                              className="w-full px-4 py-3 pr-10 border border-gray-200 rounded-lg focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm"
+                              min="3"
+                              max="8"
+                              placeholder="5"
+                            />
+                            <span className="absolute right-3 top-1/2 transform -translate-y-1/2 text-sm text-gray-500">ft</span>
+                          </div>
+                          <div className="relative flex-1">
+                            <input
+                              type="number"
+                              value={calculatorData.heightInches}
+                              onChange={(e) => setCalculatorData({...calculatorData, heightInches: Number(e.target.value)})}
+                              className="w-full px-4 py-3 pr-10 border border-gray-200 rounded-lg focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm"
+                              min="0"
+                              max="11"
+                              placeholder="10"
+                            />
+                            <span className="absolute right-3 top-1/2 transform -translate-y-1/2 text-sm text-gray-500">in</span>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Height
+                        </label>
+                        <div className="relative">
+                          <input
+                            type="number"
+                            value={calculatorData.height}
+                            onChange={(e) => setCalculatorData({...calculatorData, height: Number(e.target.value)})}
+                            className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm"
+                            min="100"
+                            max="250"
+                            placeholder="175"
+                          />
+                          <span className="absolute right-3 top-1/2 transform -translate-y-1/2 text-sm text-gray-500">cm</span>
+                        </div>
+                      </div>
+                    )}
 
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Weight (pounds)
+                        Weight
                       </label>
-                      <input
-                        type="number"
-                        value={calculatorData.weight}
-                        onChange={(e) => setCalculatorData({...calculatorData, weight: Number(e.target.value)})}
-                        className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-1 focus:ring-gray-400 focus:border-gray-400 outline-none text-sm"
-                      />
+                      <div className="relative">
+                        <input
+                          type="number"
+                          value={calculatorData.weight}
+                          onChange={(e) => setCalculatorData({...calculatorData, weight: Number(e.target.value)})}
+                          className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm"
+                          min={calculatorData.unitSystem === 'imperial' ? "50" : "20"}
+                          max={calculatorData.unitSystem === 'imperial' ? "1000" : "450"}
+                          placeholder={calculatorData.unitSystem === 'imperial' ? "165" : "75"}
+                        />
+                        <span className="absolute right-3 top-1/2 transform -translate-y-1/2 text-sm text-gray-500">
+                          {calculatorData.unitSystem === 'imperial' ? 'lbs' : 'kg'}
+                        </span>
+                      </div>
                     </div>
                   </div>
 
@@ -1343,7 +1587,7 @@ const MacroTracker = () => {
                     <select
                       value={calculatorData.activityLevel}
                       onChange={(e) => setCalculatorData({...calculatorData, activityLevel: e.target.value as keyof typeof activityMultipliers})}
-                      className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-1 focus:ring-gray-400 focus:border-gray-400 outline-none text-sm"
+                      className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm bg-white"
                     >
                       <option value="sedentary">Sedentary: little or no exercise</option>
                       <option value="light">Light: exercise 1-3 times/week</option>
@@ -1370,10 +1614,24 @@ const MacroTracker = () => {
                     </div>
                   )}
 
-                                    <div className="flex flex-col sm:flex-row gap-3 pt-4">                    <button                      onClick={calculateCalories}                      className="flex-1 sm:flex-none px-6 sm:px-8 py-3 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg transition-colors inline-flex items-center justify-center gap-2"                    >                      Calculate                      <ChevronRight size={16} />                    </button>                    <button                      onClick={() => {
+                  <div className="flex flex-col sm:flex-row gap-3 pt-6">
+                    <button
+                      onClick={calculateCalories}
+                      className="flex-1 sm:flex-none px-8 py-3 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-lg transition-all duration-200 inline-flex items-center justify-center gap-2 shadow-sm hover:shadow-md"
+                    >
+                      Calculate
+                      <ChevronRight size={16} />
+                    </button>
+                    <button
+                      onClick={() => {
                         setShowCalculator(false);
                         setCalculatorValidationErrors([]);
-                      }}                      className="flex-1 sm:flex-none px-6 py-3 border border-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"                    >                      Cancel                    </button>                  </div>
+                      }}
+                      className="flex-1 sm:flex-none px-6 py-3 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
                 </div>
               ) : calculatorResults ? (
                 // Calculator Results
@@ -1411,7 +1669,9 @@ const MacroTracker = () => {
                         <div className="flex justify-between items-center">
                           <div>
                             <h4 className="font-medium text-gray-900">Mild weight loss</h4>
-                            <p className="text-sm text-gray-600">0.5 lb/week</p>
+                            <p className="text-sm text-gray-600">
+                              {calculatorData.unitSystem === 'imperial' ? '0.5 lb/week' : '0.25 kg/week'}
+                            </p>
                           </div>
                           <div className="text-right">
                             <div className="text-xl font-bold text-gray-900">{calculatorResults.mildLoss.toLocaleString()}</div>
@@ -1428,7 +1688,9 @@ const MacroTracker = () => {
                         <div className="flex justify-between items-center">
                           <div>
                             <h4 className="font-medium text-gray-900">Weight loss</h4>
-                            <p className="text-sm text-gray-600">1 lb/week</p>
+                            <p className="text-sm text-gray-600">
+                              {calculatorData.unitSystem === 'imperial' ? '1 lb/week' : '0.5 kg/week'}
+                            </p>
                           </div>
                           <div className="text-right">
                             <div className="text-xl font-bold text-gray-900">{calculatorResults.weightLoss.toLocaleString()}</div>
@@ -1445,7 +1707,9 @@ const MacroTracker = () => {
                         <div className="flex justify-between items-center">
                           <div>
                             <h4 className="font-medium text-gray-900">Extreme weight loss</h4>
-                            <p className="text-sm text-gray-600">2 lb/week</p>
+                            <p className="text-sm text-gray-600">
+                              {calculatorData.unitSystem === 'imperial' ? '2 lb/week' : '1 kg/week'}
+                            </p>
                           </div>
                           <div className="text-right">
                             <div className="text-xl font-bold text-gray-900">{calculatorResults.extremeLoss.toLocaleString()}</div>
@@ -1460,7 +1724,12 @@ const MacroTracker = () => {
                   <div className="text-sm text-gray-600 bg-gray-50 p-4 rounded-lg">
                     <p className="mb-2"><strong>Note:</strong> Macro ratios are automatically calculated as:</p>
                     <ul className="list-disc list-inside space-y-1 text-xs">
-                      <li>Protein: 1g per lb bodyweight ({calculatorData.weight}g)</li>
+                      <li>
+                        Protein: {calculatorData.unitSystem === 'imperial' 
+                          ? `1g per lb bodyweight (${Math.round(calculatorData.weight)}g)` 
+                          : `2.2g per kg bodyweight (${Math.round(calculatorData.weight * 2.2)}g)`
+                        }
+                      </li>
                       <li>Fat: 25% of total calories</li>
                       <li>Carbs: Remaining calories</li>
                     </ul>
@@ -1500,10 +1769,23 @@ const MacroTracker = () => {
                     </div>
                   )}
                   
-                                    <div className="flex flex-col sm:flex-row gap-3 pt-4">                    <button                      onClick={updateGoals}                      className="flex-1 sm:flex-none px-6 py-3 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors"                    >                      Save Changes                    </button>                    <button                      onClick={() => {
+                  <div className="flex flex-col sm:flex-row gap-3 pt-4">
+                    <button
+                      onClick={updateGoals}
+                      className="flex-1 sm:flex-none px-6 py-3 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors"
+                    >
+                      Save Changes
+                    </button>
+                    <button
+                      onClick={() => {
                         setEditingGoals(false);
                         setGoalsValidationErrors([]);
-                      }}                      className="flex-1 sm:flex-none px-6 py-3 border border-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"                    >                      Cancel                    </button>                  </div>
+                      }}
+                      className="flex-1 sm:flex-none px-6 py-3 border border-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
