@@ -163,7 +163,15 @@ const dbHelpers = {
     getUserData(userId) {
         try {
             const customFoods = statements.getCustomFoods.all(userId);
-            const dailyEntries = statements.getDailyEntries.all(userId);
+            const rawDailyEntries = statements.getDailyEntries.all(userId);
+            
+            // Map database column names to frontend property names
+            const dailyEntries = rawDailyEntries.map(entry => ({
+                ...entry,
+                mealTime: entry.meal_time,
+                foodId: entry.food_id
+            }));
+            
             const goals = statements.getGoals.get(userId) || {
                 calories: 2200,
                 protein: 165,
@@ -214,7 +222,7 @@ const dbHelpers = {
                 for (const entry of dailyEntries) {
                     statements.insertDailyEntry.run(
                         userId,
-                        entry.foodId,
+                        entry.foodId || entry.food_id,
                         entry.name,
                         entry.servings,
                         entry.calories,
@@ -222,7 +230,7 @@ const dbHelpers = {
                         entry.carbs,
                         entry.fat,
                         entry.date,
-                        entry.mealTime
+                        entry.mealTime || entry.meal_time || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
                     );
                 }
 
@@ -241,6 +249,16 @@ const dbHelpers = {
             return true;
         } catch (error) {
             console.error('Error saving user data:', error);
+            return false;
+        }
+    },
+
+    deleteDailyEntry(userId, entryId) {
+        try {
+            const result = statements.deleteDailyEntry.run(entryId, userId);
+            return result.changes > 0;
+        } catch (error) {
+            console.error('Error deleting daily entry:', error);
             return false;
         }
     }

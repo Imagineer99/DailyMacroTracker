@@ -214,6 +214,57 @@ app.post('/api/user/data', authenticateToken, async (req, res) => {
   try {
     const { customFoods, dailyEntries, goals } = req.body;
     
+    // Basic validation for data structure
+    if (customFoods && !Array.isArray(customFoods)) {
+      return res.status(400).json({ error: 'Custom foods must be an array' });
+    }
+    
+    if (dailyEntries && !Array.isArray(dailyEntries)) {
+      return res.status(400).json({ error: 'Daily entries must be an array' });
+    }
+    
+    if (goals && typeof goals !== 'object') {
+      return res.status(400).json({ error: 'Goals must be an object' });
+    }
+    
+    // Validate goals if provided
+    if (goals) {
+      const { calories, protein, carbs, fat } = goals;
+      if (calories && (typeof calories !== 'number' || calories < 0 || calories > 10000)) {
+        return res.status(400).json({ error: 'Invalid calorie goal' });
+      }
+      if (protein && (typeof protein !== 'number' || protein < 0 || protein > 500)) {
+        return res.status(400).json({ error: 'Invalid protein goal' });
+      }
+      if (carbs && (typeof carbs !== 'number' || carbs < 0 || carbs > 1000)) {
+        return res.status(400).json({ error: 'Invalid carbs goal' });
+      }
+      if (fat && (typeof fat !== 'number' || fat < 0 || fat > 300)) {
+        return res.status(400).json({ error: 'Invalid fat goal' });
+      }
+    }
+    
+    // Validate custom foods if provided
+    if (customFoods && customFoods.length > 0) {
+      for (const food of customFoods) {
+        if (!food.name || typeof food.name !== 'string' || food.name.trim().length < 2) {
+          return res.status(400).json({ error: 'Invalid food name' });
+        }
+        if (typeof food.calories !== 'number' || food.calories < 0 || food.calories > 9000) {
+          return res.status(400).json({ error: 'Invalid calories value' });
+        }
+        if (typeof food.protein !== 'number' || food.protein < 0 || food.protein > 100) {
+          return res.status(400).json({ error: 'Invalid protein value' });
+        }
+        if (typeof food.carbs !== 'number' || food.carbs < 0 || food.carbs > 100) {
+          return res.status(400).json({ error: 'Invalid carbs value' });
+        }
+        if (typeof food.fat !== 'number' || food.fat < 0 || food.fat > 100) {
+          return res.status(400).json({ error: 'Invalid fat value' });
+        }
+      }
+    }
+    
     const success = dbHelpers.saveUserData(req.user.id, {
       customFoods: customFoods || [],
       dailyEntries: dailyEntries || [],
@@ -228,6 +279,28 @@ app.post('/api/user/data', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Failed to save user data:', error);
     res.status(500).json({ error: 'Failed to save user data' });
+  }
+});
+
+// Delete specific daily entry endpoint
+app.delete('/api/user/daily-entry/:entryId', authenticateToken, async (req, res) => {
+  try {
+    const entryId = parseInt(req.params.entryId);
+    
+    if (isNaN(entryId)) {
+      return res.status(400).json({ error: 'Invalid entry ID' });
+    }
+    
+    const success = dbHelpers.deleteDailyEntry(req.user.id, entryId);
+    
+    if (!success) {
+      return res.status(404).json({ error: 'Entry not found or could not be deleted' });
+    }
+    
+    res.json({ message: 'Entry deleted successfully' });
+  } catch (error) {
+    console.error('Failed to delete daily entry:', error);
+    res.status(500).json({ error: 'Failed to delete entry' });
   }
 });
 

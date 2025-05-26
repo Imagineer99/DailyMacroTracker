@@ -1,0 +1,16 @@
+<svg width="256" height="256" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
+  <!-- Rounded rectangle background -->
+  <rect width="256" height="256" rx="64" ry="64" fill="#1a202c"/>
+  
+  <!-- Outer white circle -->
+  <circle cx="128" cy="128" r="80" fill="none" stroke="white" stroke-width="12"/>
+  
+  <!-- Middle white circle -->
+  <circle cx="128" cy="128" r="52" fill="none" stroke="white" stroke-width="12"/>
+  
+  <!-- Inner white circle -->
+  <circle cx="128" cy="128" r="24" fill="none" stroke="white" stroke-width="12"/>
+  
+  <!-- Center dot -->
+  <circle cx="128" cy="128" r="8" fill="#1a202c"/>
+</svg> 

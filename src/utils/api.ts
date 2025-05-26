@@ -68,8 +68,11 @@ class ApiClient {
     this.axiosInstance.interceptors.response.use(
       (response) => response,
       (error) => {
-        if (error.response?.status === 401) {
-          // Token expired or invalid
+        // Only redirect on token expiration, not login failures
+        if (error.response?.status === 401 && 
+            error.config?.url !== '/api/auth/login' && 
+            error.config?.url !== '/api/auth/register') {
+          // Token expired or invalid (but not a login attempt)
           localStorage.removeItem('authToken');
           localStorage.removeItem('authUser');
           window.location.href = '/login';
@@ -137,6 +140,11 @@ class ApiClient {
 
   async saveUserData(data: UserData): Promise<ApiResponse<{ message: string }>> {
     return this.request<{ message: string }>('POST', '/api/user/data', data);
+  }
+
+  // Delete specific daily entry
+  async deleteDailyEntry(entryId: number): Promise<ApiResponse<{ message: string }>> {
+    return this.request<{ message: string }>('DELETE', `/api/user/daily-entry/${entryId}`);
   }
 
   // Health check

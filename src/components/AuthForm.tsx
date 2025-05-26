@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+console.log('AuthForm rendered');
 import { Eye, EyeOff, User, Lock, UserPlus, LogIn, AlertCircle, CheckCircle } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -47,14 +48,17 @@ const AuthForm: React.FC<AuthFormProps> = ({ onSuccess }) => {
         : await register(username, password);
 
       if (!result.success) {
-        setError(result.error || 'Authentication failed');
-        setPassword(''); // Clear password field on error
+        // Use setTimeout to ensure error persists like rate limiting errors
+        setTimeout(() => {
+          setError(result.error || 'Authentication failed');
+        }, 0);
+        // Keep password field intact like rate limiting errors do
       } else if (onSuccess) {
         onSuccess();
       }
     } catch (error) {
       setError('Network error. Please check your connection and try again.');
-      setPassword(''); // Clear password field on error
+      // Keep password field intact like rate limiting errors do
     } finally {
       setLoading(false); // Always reset loading state
     }
@@ -69,6 +73,7 @@ const AuthForm: React.FC<AuthFormProps> = ({ onSuccess }) => {
     }
     
     // Error clearing logic removed to make all errors sticky
+    // DO NOT clear error here - this is what makes rate limiting errors work
   };
 
   const toggleMode = () => {

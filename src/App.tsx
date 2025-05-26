@@ -1,8 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Search, Target, Calendar, User, Home, BarChart3, Apple, Utensils, Edit3, Trash2, Save, X, ChevronRight, UserPlus, LogOut } from 'lucide-react';
+import { Plus, Search, Target, Calendar, User, Home, BarChart3, Apple, Utensils, Edit3, Trash2, Save, X, ChevronRight, UserPlus, LogOut, AlertCircle } from 'lucide-react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import AuthForm from './components/AuthForm';
+import DataCleanup from './components/DataCleanup';
 import { api } from './utils/api';
+import { 
+  validateFood, 
+  validatePortionSize, 
+  validateCalculatorData, 
+  validateGoals, 
+  sanitizeString, 
+  type FoodData,
+} from './utils/validation';
 
 // Define interfaces
 interface Food {
@@ -13,6 +22,7 @@ interface Food {
   carbs: number;
   fat: number;
   serving: string;
+  unit?: 'g' | 'ml';
   isCustom?: boolean;
 }
 
@@ -21,6 +31,8 @@ interface DailyEntry {
   foodId: number;
   name: string;
   servings: number;
+  portionSize: number;
+  unit: string;
   calories: number;
   protein: number;
   carbs: number;
@@ -41,6 +53,13 @@ const LoadingSpinner = () => (
 
 const MacroTracker = () => {
   const { user, logout, isAuthenticated } = useAuth();
+  
+  // Utility function to safely display numeric values, showing '0' instead of NaN
+  const safeDisplayValue = (value: number | string, decimals: number = 0): string => {
+    const numValue = typeof value === 'string' ? parseFloat(value) : value;
+    if (isNaN(numValue)) return '0';
+    return numValue.toFixed(decimals);
+  };
   const [activeTab, setActiveTab] = useState('dashboard');
   const [foods] = useState<Food[]>([
     { id: 1, name: 'Chicken Breast', calories: 165, protein: 31, carbs: 0, fat: 3.6, serving: '100g' },
@@ -63,8 +82,14 @@ const MacroTracker = () => {
     protein: '',
     carbs: '',
     fat: '',
-    serving: '100'
+    serving: '100',
+    unit: 'g' as 'g' | 'ml'
   });
+  
+  // State for portion selection when adding food to diary
+  const [showPortionModal, setShowPortionModal] = useState(false);
+  const [selectedFood, setSelectedFood] = useState<Food | null>(null);
+  const [portionSize, setPortionSize] = useState('100');
   
   const [dailyEntries, setDailyEntries] = useState<DailyEntry[]>([]);
   const [goals, setGoals] = useState({
@@ -93,6 +118,14 @@ const MacroTracker = () => {
     extremeLoss: number;
   } | null>(null);
 
+  // Validation states
+  const [foodValidationErrors, setFoodValidationErrors] = useState<string[]>([]);
+  const [portionValidationErrors, setPortionValidationErrors] = useState<string[]>([]);
+  const [calculatorValidationErrors, setCalculatorValidationErrors] = useState<string[]>([]);
+  const [goalsValidationErrors, setGoalsValidationErrors] = useState<string[]>([]);
+  const [isDeletingEntry, setIsDeletingEntry] = useState(false);
+  const [isManualSaving, setIsManualSaving] = useState(false);
+
   // Activity multipliers for calorie calculation
   const activityMultipliers = {
     sedentary: 1.2,
@@ -100,6 +133,38 @@ const MacroTracker = () => {
     moderate: 1.55,
     active: 1.725,
     veryActive: 1.9
+  };
+
+  // Function to clean up NaN values in daily entries
+  const cleanupNaNEntries = (entries: DailyEntry[]): DailyEntry[] => {
+    return entries.filter(entry => {
+      // Remove entries with NaN values
+      if (isNaN(entry.calories) || isNaN(entry.protein) || isNaN(entry.carbs) || isNaN(entry.fat)) {
+        console.warn('Removing entry with NaN values:', entry);
+        return false;
+      }
+      return true;
+    });
+  };
+
+  // Function to count corrupted entries
+  const countCorruptedEntries = (): number => {
+    return dailyEntries.filter(entry => 
+      isNaN(entry.calories) || isNaN(entry.protein) || isNaN(entry.carbs) || isNaN(entry.fat)
+    ).length;
+  };
+
+  // Function to manually clean up corrupted entries
+  const manualCleanupCorruptedEntries = () => {
+    const cleanEntries = cleanupNaNEntries(dailyEntries);
+    setDailyEntries(cleanEntries);
+    
+    // Save the cleaned data
+    if (isAuthenticated) {
+      saveUserDataToBackend();
+    } else {
+      localStorage.setItem('dailyEntries', JSON.stringify(cleanEntries));
+    }
   };
 
   // Load user data from backend on authentication
@@ -116,7 +181,17 @@ const MacroTracker = () => {
       if (response.success && response.data) {
         const userData = response.data;
         setCustomFoods(userData.customFoods || []);
-        setDailyEntries(userData.dailyEntries || []);
+        
+        // Clean up any NaN entries before setting state
+        const cleanEntries = cleanupNaNEntries(userData.dailyEntries || []);
+        setDailyEntries(cleanEntries);
+        
+        // If we removed any entries, save the cleaned data back
+        if (cleanEntries.length !== (userData.dailyEntries || []).length) {
+          console.log('Cleaned up NaN entries, saving corrected data');
+          setTimeout(() => saveUserDataToBackend(), 1000);
+        }
+        
         setGoals(userData.goals || { calories: 2200, protein: 165, carbs: 275, fat: 73 });
       }
     } catch (error) {
@@ -125,29 +200,30 @@ const MacroTracker = () => {
   };
 
   // Save user data to backend
-  const saveUserDataToBackend = async () => {
+  const saveUserDataToBackend = async (overrideData?: { customFoods?: any[], dailyEntries?: any[], goals?: any }) => {
     try {
       const userData = {
-        customFoods,
-        dailyEntries,
-        goals
+        customFoods: overrideData?.customFoods ?? customFoods,
+        dailyEntries: overrideData?.dailyEntries ?? dailyEntries,
+        goals: overrideData?.goals ?? goals
       };
       await api.saveUserData(userData);
     } catch (error) {
       console.error('Failed to save user data:', error);
+      throw error; // Re-throw to allow caller to handle
     }
   };
 
   // Auto-save to backend when data changes
   useEffect(() => {
-    if (isAuthenticated && (customFoods.length > 0 || dailyEntries.length > 0)) {
+    if (isAuthenticated && (customFoods.length > 0 || dailyEntries.length > 0) && !isDeletingEntry && !isManualSaving) {
       const timeoutId = setTimeout(() => {
         saveUserDataToBackend();
       }, 1000); // Debounce saves by 1 second
 
       return () => clearTimeout(timeoutId);
     }
-  }, [customFoods, dailyEntries, goals, isAuthenticated]);
+  }, [customFoods, dailyEntries, goals, isAuthenticated, isDeletingEntry, isManualSaving]);
 
   // Legacy localStorage for backward compatibility (remove these after migration)
   useEffect(() => {
@@ -159,7 +235,15 @@ const MacroTracker = () => {
       
       const savedEntries = localStorage.getItem('dailyEntries');
       if (savedEntries) {
-        setDailyEntries(JSON.parse(savedEntries));
+        const parsedEntries = JSON.parse(savedEntries);
+        const cleanEntries = cleanupNaNEntries(parsedEntries);
+        setDailyEntries(cleanEntries);
+        
+        // If we cleaned up entries, save the corrected data back to localStorage
+        if (cleanEntries.length !== parsedEntries.length) {
+          console.log('Cleaned up NaN entries in localStorage');
+          localStorage.setItem('dailyEntries', JSON.stringify(cleanEntries));
+        }
       }
     }
   }, [isAuthenticated]);
@@ -180,41 +264,68 @@ const MacroTracker = () => {
 
   // Custom food management functions
   const addCustomFood = () => {
-    if (!newFood.name || !newFood.calories || !newFood.protein || !newFood.carbs || !newFood.fat || !newFood.serving) {
-      alert('Please fill in all fields');
+    // Validate food data
+    const foodData: FoodData = {
+      name: sanitizeString(newFood.name),
+      calories: newFood.calories,
+      protein: newFood.protein,
+      carbs: newFood.carbs,
+      fat: newFood.fat
+    };
+
+    const validation = validateFood(foodData);
+    if (!validation.isValid) {
+      setFoodValidationErrors(validation.errors);
       return;
     }
 
-    const quantity = parseFloat(newFood.serving);
+    // Clear validation errors if validation passes
+    setFoodValidationErrors([]);
+
     const caloriesPer100g = parseFloat(newFood.calories);
     const proteinPer100g = parseFloat(newFood.protein);
     const carbsPer100g = parseFloat(newFood.carbs);
     const fatPer100g = parseFloat(newFood.fat);
 
-    // Calculate values for the actual quantity
+    // Store values per 100g/100ml to be consistent with built-in foods
     const customFood: Food = {
       id: Date.now(),
-      name: newFood.name,
-      calories: (caloriesPer100g * quantity) / 100,
-      protein: (proteinPer100g * quantity) / 100,
-      carbs: (carbsPer100g * quantity) / 100,
-      fat: (fatPer100g * quantity) / 100,
-      serving: `${quantity}g`,
+      name: sanitizeString(newFood.name),
+      calories: caloriesPer100g,
+      protein: proteinPer100g,
+      carbs: carbsPer100g,
+      fat: fatPer100g,
+      serving: `100${newFood.unit}`,
+      unit: newFood.unit,
       isCustom: true
     };
 
     setCustomFoods([...customFoods, customFood]);
-    setNewFood({ name: '', calories: '', protein: '', carbs: '', fat: '', serving: '100' });
+    setNewFood({ name: '', calories: '', protein: '', carbs: '', fat: '', serving: '100', unit: 'g' });
     setShowAddFoodForm(false);
   };
 
   const updateCustomFood = () => {
-    if (!newFood.name || !newFood.calories || !newFood.protein || !newFood.carbs || !newFood.fat || !newFood.serving || !editingFood) {
-      alert('Please fill in all fields');
+    if (!editingFood) return;
+
+    // Validate food data
+    const foodData: FoodData = {
+      name: sanitizeString(newFood.name),
+      calories: newFood.calories,
+      protein: newFood.protein,
+      carbs: newFood.carbs,
+      fat: newFood.fat
+    };
+
+    const validation = validateFood(foodData);
+    if (!validation.isValid) {
+      setFoodValidationErrors(validation.errors);
       return;
     }
 
-    const quantity = parseFloat(newFood.serving);
+    // Clear validation errors if validation passes
+    setFoodValidationErrors([]);
+
     const caloriesPer100g = parseFloat(newFood.calories);
     const proteinPer100g = parseFloat(newFood.protein);
     const carbsPer100g = parseFloat(newFood.carbs);
@@ -222,38 +333,38 @@ const MacroTracker = () => {
 
     const updatedFood: Food = {
       ...editingFood,
-      name: newFood.name,
-      calories: (caloriesPer100g * quantity) / 100,
-      protein: (proteinPer100g * quantity) / 100,
-      carbs: (carbsPer100g * quantity) / 100,
-      fat: (fatPer100g * quantity) / 100,
-      serving: `${quantity}g`,
+      name: sanitizeString(newFood.name),
+      calories: caloriesPer100g,
+      protein: proteinPer100g,
+      carbs: carbsPer100g,
+      fat: fatPer100g,
+      serving: `100${newFood.unit}`,
+      unit: newFood.unit,
     };
 
     setCustomFoods(customFoods.map(food => 
       food.id === editingFood.id ? updatedFood : food
     ));
     setEditingFood(null);
-    setNewFood({ name: '', calories: '', protein: '', carbs: '', fat: '', serving: '100' });
+    setNewFood({ name: '', calories: '', protein: '', carbs: '', fat: '', serving: '100', unit: 'g' });
+    setShowAddFoodForm(false);
   };
 
   const deleteCustomFood = (foodId: number) => {
-    if (confirm('Are you sure you want to delete this food?')) {
-      setCustomFoods(customFoods.filter(food => food.id !== foodId));
-    }
+    setCustomFoods(customFoods.filter(food => food.id !== foodId));
   };
 
   const startEditingFood = (food: Food) => {
     setEditingFood(food);
-    // Convert back to per-100g values for editing
-    const quantity = parseFloat(food.serving.replace('g', ''));
+    // Values are already per 100g/100ml, so just use them directly
     setNewFood({
       name: food.name,
-      calories: ((food.calories * 100) / quantity).toString(),
-      protein: ((food.protein * 100) / quantity).toString(),
-      carbs: ((food.carbs * 100) / quantity).toString(),
-      fat: ((food.fat * 100) / quantity).toString(),
-      serving: quantity.toString()
+      calories: food.calories.toString(),
+      protein: food.protein.toString(),
+      carbs: food.carbs.toString(),
+      fat: food.fat.toString(),
+      serving: '100',
+      unit: food.unit || 'g'
     });
     setShowAddFoodForm(true);
   };
@@ -261,68 +372,227 @@ const MacroTracker = () => {
   const cancelFoodForm = () => {
     setShowAddFoodForm(false);
     setEditingFood(null);
-    setNewFood({ name: '', calories: '', protein: '', carbs: '', fat: '', serving: '100' });
+    setNewFood({ name: '', calories: '', protein: '', carbs: '', fat: '', serving: '100', unit: 'g' });
+    setFoodValidationErrors([]);
   };
 
-  // Calculate daily totals
+  // Calculate daily totals with NaN protection
   const dailyTotals = dailyEntries
     .filter(entry => entry.date === selectedDate)
-    .reduce((totals, entry) => ({
-      calories: totals.calories + entry.calories,
-      protein: totals.protein + entry.protein,
-      carbs: totals.carbs + entry.carbs,
-      fat: totals.fat + entry.fat
-    }), { calories: 0, protein: 0, carbs: 0, fat: 0 });
+    .reduce((totals, entry) => {
+      // Protect against NaN values in entries
+      const safeCalories = isNaN(entry.calories) ? 0 : entry.calories;
+      const safeProtein = isNaN(entry.protein) ? 0 : entry.protein;
+      const safeCarbs = isNaN(entry.carbs) ? 0 : entry.carbs;
+      const safeFat = isNaN(entry.fat) ? 0 : entry.fat;
+      
+      return {
+        calories: totals.calories + safeCalories,
+        protein: totals.protein + safeProtein,
+        carbs: totals.carbs + safeCarbs,
+        fat: totals.fat + safeFat
+      };
+    }, { calories: 0, protein: 0, carbs: 0, fat: 0 });
 
-  const addFoodEntry = (food: Food, servings = 1) => {
+  const openPortionModal = (food: Food) => {
+    setSelectedFood(food);
+    setPortionSize('100');
+    setShowPortionModal(true);
+  };
+
+  const addFoodEntry = async (food: Food, customPortionSize?: number) => {
+    let actualPortionSize: number;
+    
+    // Handle portion size validation and parsing
+    if (customPortionSize !== undefined) {
+      actualPortionSize = customPortionSize;
+    } else {
+      // Validate portion size from modal input
+      const validation = validatePortionSize(portionSize);
+      if (!validation.isValid) {
+        setPortionValidationErrors(validation.errors);
+        return;
+      }
+      setPortionValidationErrors([]);
+      
+      // Parse and validate the portion size
+      actualPortionSize = parseFloat(portionSize);
+      if (isNaN(actualPortionSize) || actualPortionSize <= 0) {
+        setPortionValidationErrors(['Invalid portion size']);
+        return;
+      }
+    }
+    
+    // Validate food data to prevent NaN values
+    if (!food || typeof food.calories !== 'number' || typeof food.protein !== 'number' || 
+        typeof food.carbs !== 'number' || typeof food.fat !== 'number') {
+      console.error('Invalid food data:', food);
+      return;
+    }
+    
+    // Additional safety checks for NaN values
+    if (isNaN(food.calories) || isNaN(food.protein) || isNaN(food.carbs) || isNaN(food.fat)) {
+      console.error('Food contains NaN values:', food);
+      return;
+    }
+    
+    const basePortionSize = parseFloat(food.serving.replace(/[^\d.]/g, '')) || 100;
+    const multiplier = actualPortionSize / basePortionSize;
+    
+    // Validate multiplier
+    if (isNaN(multiplier) || multiplier <= 0) {
+      console.error('Invalid multiplier calculated:', multiplier);
+      return;
+    }
+    
+    // Calculate nutritional values with safety checks
+    const calculatedCalories = food.calories * multiplier;
+    const calculatedProtein = food.protein * multiplier;
+    const calculatedCarbs = food.carbs * multiplier;
+    const calculatedFat = food.fat * multiplier;
+    
+    // Final NaN check before creating entry
+    if (isNaN(calculatedCalories) || isNaN(calculatedProtein) || isNaN(calculatedCarbs) || isNaN(calculatedFat)) {
+      console.error('Calculated values contain NaN:', {
+        calories: calculatedCalories,
+        protein: calculatedProtein,
+        carbs: calculatedCarbs,
+        fat: calculatedFat
+      });
+      return;
+    }
+    
     const entry: DailyEntry = {
-      id: Date.now(),
+      id: Date.now(), // Temporary ID for optimistic updates
       foodId: food.id,
       name: food.name,
-      servings,
-      calories: food.calories * servings,
-      protein: food.protein * servings,
-      carbs: food.carbs * servings,
-      fat: food.fat * servings,
+      servings: 1,
+      portionSize: actualPortionSize,
+      unit: food.unit || 'g',
+      calories: calculatedCalories,
+      protein: calculatedProtein,
+      carbs: calculatedCarbs,
+      fat: calculatedFat,
       date: selectedDate,
       mealTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
-    setDailyEntries([...dailyEntries, entry]);
+    
+    // Store original entries for potential rollback
+    const originalEntries = [...dailyEntries];
+    const updatedEntries = [...dailyEntries, entry];
+  
+    
+    // Optimistically update the UI
+    setDailyEntries(updatedEntries);
+    setShowPortionModal(false);
+    setSelectedFood(null);
+    setPortionSize('100');
+    
+    // If authenticated, save to backend and reload to get proper IDs
+    if (isAuthenticated) {
+      try {
+        setIsManualSaving(true);
+        await saveUserDataToBackend({ dailyEntries: updatedEntries });
+        // Reload data to get the correct database IDs
+        await loadUserDataFromBackend();
+      } catch (error) {
+        console.error('Failed to save entry to backend:', error);
+        // Revert the optimistic update on error
+        setDailyEntries(originalEntries);
+      } finally {
+        setIsManualSaving(false);
+      }
+    }
   };
 
   const removeFoodEntry = async (entryId: number) => {
+    // Store the original entries for potential rollback
+    const originalEntries = [...dailyEntries];
+    
     try {
+      // Set flag to prevent auto-save during deletion
+      setIsDeletingEntry(true);
+      
+      // Find the entry to be deleted for logging
+      const entryToDelete = dailyEntries.find(entry => entry.id === entryId);
+      console.log('Attempting to delete entry:', entryToDelete);
+      
+      if (!entryToDelete) {
+        console.error('Entry not found in local state:', entryId);
+        alert('Entry not found. Please refresh the page and try again.');
+        setIsDeletingEntry(false);
+        return;
+      }
+      
       // Update local state with filtered entries
       const updatedEntries = dailyEntries.filter(entry => entry.id !== entryId);
       setDailyEntries(updatedEntries);
       
-      // Explicitly save to backend if authenticated
+      // If authenticated, use the full save approach since individual delete may fail due to ID mismatch
       if (isAuthenticated) {
-        const saveResponse = await api.saveUserData({
-          customFoods,
-          dailyEntries: updatedEntries,
-          goals
-        });
+        console.log('User is authenticated, saving updated entries to backend...');
         
-        if (!saveResponse.success) {
-          console.error('Failed to save deletion:', saveResponse.error);
+        try {
+          setIsManualSaving(true);
+          // Use the full save approach which replaces all entries
+          await saveUserDataToBackend({ dailyEntries: updatedEntries });
+          
+          console.log('Entry deleted successfully via full save method');
+          
+          // Reload data to ensure we have the correct IDs from the database
+          await loadUserDataFromBackend();
+        } catch (saveError) {
+          console.error('Failed to save updated entries:', saveError);
           // Revert the deletion if save failed
-          setDailyEntries(dailyEntries);
+          setDailyEntries(originalEntries);
+          alert(`Failed to delete entry: ${saveError || 'Unknown error'}. Please try again.`);
+          setIsDeletingEntry(false);
+          return;
+        } finally {
+          setIsManualSaving(false);
         }
+      } else {
+        console.log('User not authenticated, deletion only applied locally');
       }
+      
+      console.log('Food entry deleted successfully');
     } catch (error) {
       console.error('Error removing food entry:', error);
       // Revert the deletion on error
-      setDailyEntries(dailyEntries);
+      setDailyEntries(originalEntries);
+      alert('Error deleting entry. Please try again.');
+    } finally {
+      // Always clear the deletion flag
+      setIsDeletingEntry(false);
     }
   };
 
   const updateGoals = () => {
+    // Validate goals data
+    const validation = validateGoals(newGoals);
+    if (!validation.isValid) {
+      setGoalsValidationErrors(validation.errors);
+      return;
+    }
+    
+    // Clear validation errors if validation passes
+    setGoalsValidationErrors([]);
+    
     setGoals(newGoals);
     setEditingGoals(false);
   };
 
   const calculateCalories = () => {
+    // Validate calculator data
+    const validation = validateCalculatorData(calculatorData);
+    if (!validation.isValid) {
+      setCalculatorValidationErrors(validation.errors);
+      return;
+    }
+    
+    // Clear validation errors if validation passes
+    setCalculatorValidationErrors([]);
+    
     // Mifflin-St Jeor Equation
     let bmr;
     const heightInCm = calculatorData.height * 30.48; // convert feet to cm
@@ -371,8 +641,12 @@ const MacroTracker = () => {
     unit?: string;
     gradient: string;
   }) => {
-    const percentage = Math.min((current / goal) * 100, 100);
-    const remaining = Math.max(goal - current, 0);
+    // Protect against NaN values
+    const safeCurrent = isNaN(current) ? 0 : current;
+    const safeGoal = isNaN(goal) ? 1 : goal;
+    
+    const percentage = Math.min((safeCurrent / safeGoal) * 100, 100);
+    const remaining = Math.max(safeGoal - safeCurrent, 0);
     const isComplete = percentage >= 100;
     
     return (
@@ -381,8 +655,8 @@ const MacroTracker = () => {
           <div>
             <h3 className="text-sm font-medium text-gray-600 uppercase tracking-wide">{label}</h3>
             <div className="mt-1">
-              <span className="text-2xl font-light text-gray-900">{current.toFixed(0)}</span>
-              <span className="text-sm text-gray-500 ml-1">/ {goal}{unit}</span>
+              <span className="text-2xl font-light text-gray-900">{safeCurrent.toFixed(0)}</span>
+              <span className="text-sm text-gray-500 ml-1">/ {safeGoal}{unit}</span>
             </div>
           </div>
           <div className={`text-xs font-medium px-2 py-1 rounded ${
@@ -409,7 +683,7 @@ const MacroTracker = () => {
 
   const FoodCard = ({ food, onAdd, onEdit, onDelete, isCustom = false }: {
     food: Food;
-    onAdd: (food: Food) => void;
+    onAdd: (food: Food) => Promise<void>;
     onEdit?: (food: Food) => void;
     onDelete?: (foodId: number) => void;
     isCustom?: boolean;
@@ -419,9 +693,6 @@ const MacroTracker = () => {
         <div className="flex-1">
           <div className="flex items-center gap-2 mb-1">
             <h3 className="font-medium text-gray-900">{food.name}</h3>
-            {isCustom && (
-              <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">My Food</span>
-            )}
           </div>
           <p className="text-xs text-gray-500 uppercase tracking-wide">Per {food.serving}</p>
         </div>
@@ -445,7 +716,7 @@ const MacroTracker = () => {
             </>
           )}
           <button
-            onClick={() => onAdd(food)}
+            onClick={() => openPortionModal(food)}
             className="bg-gray-900 hover:bg-gray-800 text-white rounded-full p-2 transition-all duration-200"
             title="Add to diary"
           >
@@ -457,19 +728,19 @@ const MacroTracker = () => {
       <div className="grid grid-cols-2 gap-3 text-sm">
         <div className="flex justify-between">
           <span className="text-gray-600">Calories</span>
-          <span className="font-medium text-gray-900">{food.calories}</span>
+          <span className="font-medium text-gray-900">{safeDisplayValue(food.calories)}</span>
         </div>
         <div className="flex justify-between">
           <span className="text-gray-600">Protein</span>
-          <span className="font-medium text-gray-900">{food.protein}g</span>
+          <span className="font-medium text-gray-900">{safeDisplayValue(food.protein, 1)}g</span>
         </div>
         <div className="flex justify-between">
           <span className="text-gray-600">Carbs</span>
-          <span className="font-medium text-gray-900">{food.carbs}g</span>
+          <span className="font-medium text-gray-900">{safeDisplayValue(food.carbs, 1)}g</span>
         </div>
         <div className="flex justify-between">
           <span className="text-gray-600">Fat</span>
-          <span className="font-medium text-gray-900">{food.fat}g</span>
+          <span className="font-medium text-gray-900">{safeDisplayValue(food.fat, 1)}g</span>
         </div>
       </div>
     </div>
@@ -533,6 +804,12 @@ const MacroTracker = () => {
         {/* Dashboard Tab */}
         {activeTab === 'dashboard' && (
           <div className="space-y-8">
+            {/* Data Cleanup Warning */}
+            <DataCleanup 
+              corruptedEntries={countCorruptedEntries()} 
+              onCleanup={manualCleanupCorruptedEntries}
+            />
+            
                         {/* Daily Overview */}            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">              <MacroProgressBar                label="Calories"                current={dailyTotals.calories}                goal={goals.calories}                unit=""                gradient="bg-gradient-to-r from-orange-400 to-red-500"              />              <MacroProgressBar                label="Protein"                current={dailyTotals.protein}                goal={goals.protein}                gradient="bg-gradient-to-r from-blue-400 to-blue-600"              />              <MacroProgressBar                label="Carbs"                current={dailyTotals.carbs}                goal={goals.carbs}                gradient="bg-gradient-to-r from-green-400 to-emerald-600"              />              <MacroProgressBar                label="Fat"                current={dailyTotals.fat}                goal={goals.fat}                gradient="bg-gradient-to-r from-purple-400 to-purple-600"              />            </div>
 
             {/* Meals Summary */}
@@ -557,30 +834,42 @@ const MacroTracker = () => {
                     </button>
                   </div>
                 ) : (
-                  todaysEntries.map(entry => (
-                    <div key={entry.id} className="p-6 hover:bg-gray-50 transition-colors group">
-                      <div className="flex items-center justify-between">
-                        <div className="flex-1">
-                          <h3 className="font-medium text-gray-900">{entry.name}</h3>
-                          <p className="text-sm text-gray-600 mt-1">
-                            {entry.servings} serving{entry.servings !== 1 ? 's' : ''} • Added at {entry.mealTime}
-                          </p>
-                          <div className="flex gap-6 text-xs text-gray-500 mt-2">
-                            <span>{entry.calories.toFixed(0)} cal</span>
-                            <span>{entry.protein.toFixed(1)}g protein</span>
-                            <span>{entry.carbs.toFixed(1)}g carbs</span>
-                            <span>{entry.fat.toFixed(1)}g fat</span>
+                  todaysEntries.map(entry => {
+                    const hasNaN = isNaN(entry.calories) || isNaN(entry.protein) || isNaN(entry.carbs) || isNaN(entry.fat);
+                    
+                    return (
+                      <div key={entry.id} className={`p-6 hover:bg-gray-50 transition-colors group ${hasNaN ? 'bg-red-50 border-l-4 border-red-400' : ''}`}>
+                        <div className="flex items-center justify-between">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2">
+                              <h3 className="font-medium text-gray-900">{entry.name}</h3>
+                              {hasNaN && (
+                                <span className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded">
+                                  Corrupted Data
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-sm text-gray-600 mt-1">
+                              {entry.portionSize}{entry.unit} • Added at {entry.mealTime}
+                            </p>
+                            <div className="flex gap-6 text-xs text-gray-500 mt-2">
+                              <span>{safeDisplayValue(entry.calories)} cal</span>
+                              <span>{safeDisplayValue(entry.protein, 1)}g protein</span>
+                              <span>{safeDisplayValue(entry.carbs, 1)}g carbs</span>
+                              <span>{safeDisplayValue(entry.fat, 1)}g fat</span>
+                            </div>
                           </div>
+                          <button
+                            onClick={() => removeFoodEntry(entry.id)}
+                            className={`opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 p-2 transition-all ${hasNaN ? 'opacity-100' : ''}`}
+                            title={hasNaN ? 'Remove corrupted entry' : 'Remove entry'}
+                          >
+                            <Trash2 size={16} />
+                          </button>
                         </div>
-                        <button
-                          onClick={() => removeFoodEntry(entry.id)}
-                          className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 p-2 transition-all"
-                        >
-                          <Trash2 size={16} />
-                        </button>
                       </div>
-                    </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
             </div>
@@ -623,15 +912,19 @@ const MacroTracker = () => {
                   
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Quantity (g)
+                      Unit
                     </label>
-                    <input
-                      type="number"
-                      value={newFood.serving}
-                      onChange={(e) => setNewFood({...newFood, serving: e.target.value})}
+                    <select
+                      value={newFood.unit}
+                      onChange={(e) => setNewFood({...newFood, unit: e.target.value as 'g' | 'ml'})}
                       className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-1 focus:ring-gray-400 focus:border-gray-400 outline-none text-sm"
-                      placeholder="100"
-                    />
+                    >
+                      <option value="g">grams</option>
+                      <option value="ml">ml</option>
+                    </select>
+                    <p className="text-xs text-gray-500 mt-1">
+                      All nutrition values will be stored per 100{newFood.unit}
+                    </p>
                   </div>
                   
                   <div>
@@ -689,7 +982,49 @@ const MacroTracker = () => {
                       placeholder="3.6"
                     />
                   </div>
+                  
+                  {/* Nutrition Preview per 100g */}
+                  {(newFood.calories || newFood.protein || newFood.carbs || newFood.fat) && (
+                    <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                      <h4 className="text-sm font-medium text-gray-700 mb-3">Nutrition per 100{newFood.unit}</h4>
+                      <div className="grid grid-cols-2 gap-3 text-sm">
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">Calories</span>
+                          <span className="font-medium text-gray-900">{safeDisplayValue(newFood.calories)}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">Protein</span>
+                          <span className="font-medium text-gray-900">{safeDisplayValue(newFood.protein, 1)}g</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">Carbs</span>
+                          <span className="font-medium text-gray-900">{safeDisplayValue(newFood.carbs, 1)}g</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">Fat</span>
+                          <span className="font-medium text-gray-900">{safeDisplayValue(newFood.fat, 1)}g</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
+                
+                {/* Validation Errors */}
+                {foodValidationErrors.length > 0 && (
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                    <div className="flex items-start">
+                      <AlertCircle className="h-4 w-4 text-red-600 mt-0.5 mr-2 flex-shrink-0" />
+                      <div className="text-sm text-red-600">
+                        <p className="font-medium mb-1">Please fix the following errors:</p>
+                        <ul className="list-disc list-inside space-y-0.5">
+                          {foodValidationErrors.map((error, index) => (
+                            <li key={index}>{error}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+                )}
                 
                 <div className="flex gap-3 pt-6">
                   <button
@@ -705,6 +1040,126 @@ const MacroTracker = () => {
                   >
                     Cancel
                   </button>
+                </div>
+              </div>
+            )}
+
+            {/* Portion Selection Modal */}
+            {showPortionModal && selectedFood && (
+              <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                <div className="bg-white rounded-lg p-6 w-full max-w-md">
+                  <div className="flex items-center justify-between mb-6">
+                    <h3 className="text-lg font-medium text-gray-900">
+                      Add {selectedFood.name}
+                    </h3>
+                    <button
+                      onClick={() => setShowPortionModal(false)}
+                      className="text-gray-400 hover:text-gray-600"
+                    >
+                      <X size={20} />
+                    </button>
+                  </div>
+                  
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Portion Size ({selectedFood.unit || 'g'})
+                      </label>
+                      <input
+                        type="number"
+                        value={portionSize}
+                        onChange={(e) => setPortionSize(e.target.value)}
+                        className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-1 focus:ring-gray-400 focus:border-gray-400 outline-none text-sm"
+                        placeholder="100"
+                        min="1"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        Nutrition values are per {selectedFood.serving}
+                      </p>
+                    </div>
+                    
+                    {/* Preview nutritional values */}
+                    <div className="bg-gray-50 rounded-lg p-4">
+                      <h4 className="text-sm font-medium text-gray-700 mb-3">Nutritional Preview</h4>
+                      <div className="grid grid-cols-2 gap-3 text-sm">
+                        {(() => {
+                          const basePortionSize = parseFloat(selectedFood.serving.replace(/[^\d.]/g, '')) || 100;
+                          const inputPortionSize = parseFloat(portionSize) || 0;
+                          const multiplier = inputPortionSize / basePortionSize;
+                          
+                          // Helper function to safely calculate and format values
+                          const safeCalculate = (value: number, decimals: number = 1): string => {
+                            if (isNaN(value) || isNaN(multiplier) || multiplier < 0) {
+                              return '0';
+                            }
+                            const result = value * multiplier;
+                            return isNaN(result) ? '0' : result.toFixed(decimals);
+                          };
+                          
+                          return (
+                            <>
+                              <div className="flex justify-between">
+                                <span className="text-gray-600">Calories</span>
+                                <span className="font-medium text-gray-900">{safeCalculate(selectedFood.calories, 0)}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-gray-600">Protein</span>
+                                <span className="font-medium text-gray-900">{safeCalculate(selectedFood.protein)}g</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-gray-600">Carbs</span>
+                                <span className="font-medium text-gray-900">{safeCalculate(selectedFood.carbs)}g</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-gray-600">Fat</span>
+                                <span className="font-medium text-gray-900">{safeCalculate(selectedFood.fat)}g</span>
+                              </div>
+                            </>
+                          );
+                        })()}
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* Validation Errors */}
+                  {portionValidationErrors.length > 0 && (
+                    <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                      <div className="flex items-start">
+                        <AlertCircle className="h-4 w-4 text-red-600 mt-0.5 mr-2 flex-shrink-0" />
+                        <div className="text-sm text-red-600">
+                          <p className="font-medium mb-1">Please fix the following:</p>
+                          <ul className="list-disc list-inside space-y-0.5">
+                            {portionValidationErrors.map((error, index) => (
+                              <li key={index}>{error}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  
+                  <div className="flex gap-3 pt-6">
+                    <button
+                      onClick={() => {
+                        if (selectedFood) {
+                          addFoodEntry(selectedFood, parseFloat(portionSize));
+                        }
+                      }}
+                      className="flex-1 px-6 py-3 bg-gray-900 hover:bg-gray-800 text-white text-sm font-medium rounded-lg transition-colors inline-flex items-center justify-center gap-2"
+                    >
+                      <Plus size={16} />
+                      Add to Diary
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowPortionModal(false);
+                        setPortionValidationErrors([]);
+                      }}
+                      className="px-6 py-3 border border-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
@@ -898,7 +1353,27 @@ const MacroTracker = () => {
                     </select>
                   </div>
 
-                                    <div className="flex flex-col sm:flex-row gap-3 pt-4">                    <button                      onClick={calculateCalories}                      className="flex-1 sm:flex-none px-6 sm:px-8 py-3 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg transition-colors inline-flex items-center justify-center gap-2"                    >                      Calculate                      <ChevronRight size={16} />                    </button>                    <button                      onClick={() => setShowCalculator(false)}                      className="flex-1 sm:flex-none px-6 py-3 border border-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"                    >                      Cancel                    </button>                  </div>
+                  {/* Validation Errors */}
+                  {calculatorValidationErrors.length > 0 && (
+                    <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                      <div className="flex items-start">
+                        <AlertCircle className="h-4 w-4 text-red-600 mt-0.5 mr-2 flex-shrink-0" />
+                        <div className="text-sm text-red-600">
+                          <p className="font-medium mb-1">Please fix the following errors:</p>
+                          <ul className="list-disc list-inside space-y-0.5">
+                            {calculatorValidationErrors.map((error, index) => (
+                              <li key={index}>{error}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                                    <div className="flex flex-col sm:flex-row gap-3 pt-4">                    <button                      onClick={calculateCalories}                      className="flex-1 sm:flex-none px-6 sm:px-8 py-3 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg transition-colors inline-flex items-center justify-center gap-2"                    >                      Calculate                      <ChevronRight size={16} />                    </button>                    <button                      onClick={() => {
+                        setShowCalculator(false);
+                        setCalculatorValidationErrors([]);
+                      }}                      className="flex-1 sm:flex-none px-6 py-3 border border-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"                    >                      Cancel                    </button>                  </div>
                 </div>
               ) : calculatorResults ? (
                 // Calculator Results
@@ -1007,7 +1482,28 @@ const MacroTracker = () => {
                       </div>
                     ))}
                   </div>
-                                    <div className="flex flex-col sm:flex-row gap-3 pt-4">                    <button                      onClick={updateGoals}                      className="flex-1 sm:flex-none px-6 py-3 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors"                    >                      Save Changes                    </button>                    <button                      onClick={() => setEditingGoals(false)}                      className="flex-1 sm:flex-none px-6 py-3 border border-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"                    >                      Cancel                    </button>                  </div>
+                  
+                  {/* Validation Errors */}
+                  {goalsValidationErrors.length > 0 && (
+                    <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                      <div className="flex items-start">
+                        <AlertCircle className="h-4 w-4 text-red-600 mt-0.5 mr-2 flex-shrink-0" />
+                        <div className="text-sm text-red-600">
+                          <p className="font-medium mb-1">Please fix the following errors:</p>
+                          <ul className="list-disc list-inside space-y-0.5">
+                            {goalsValidationErrors.map((error, index) => (
+                              <li key={index}>{error}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  
+                                    <div className="flex flex-col sm:flex-row gap-3 pt-4">                    <button                      onClick={updateGoals}                      className="flex-1 sm:flex-none px-6 py-3 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors"                    >                      Save Changes                    </button>                    <button                      onClick={() => {
+                        setEditingGoals(false);
+                        setGoalsValidationErrors([]);
+                      }}                      className="flex-1 sm:flex-none px-6 py-3 border border-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"                    >                      Cancel                    </button>                  </div>
                 </div>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
