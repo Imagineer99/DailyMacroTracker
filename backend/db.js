@@ -93,6 +93,22 @@ function initializeDatabase() {
         )
     `);
 
+    // User calculator data table
+    db.exec(`
+        CREATE TABLE IF NOT EXISTS user_calculator_data (
+            user_id TEXT PRIMARY KEY,
+            age INTEGER NOT NULL DEFAULT 25,
+            gender TEXT NOT NULL DEFAULT 'male' CHECK (gender IN ('male', 'female')),
+            height REAL NOT NULL DEFAULT 5,
+            height_inches INTEGER NOT NULL DEFAULT 10,
+            weight REAL NOT NULL DEFAULT 165,
+            activity_level TEXT NOT NULL DEFAULT 'moderate' CHECK (activity_level IN ('sedentary', 'light', 'moderate', 'active', 'veryActive')),
+            unit_system TEXT NOT NULL DEFAULT 'imperial' CHECK (unit_system IN ('imperial', 'metric')),
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+    `);
+
     // Create indexes for better performance
     db.exec(`
         CREATE INDEX IF NOT EXISTS idx_custom_foods_user_id ON custom_foods(user_id);
@@ -138,7 +154,23 @@ const statements = {
             fat = excluded.fat,
             updated_at = CURRENT_TIMESTAMP
     `),
-    getGoals: db.prepare('SELECT * FROM user_goals WHERE user_id = ?')
+    getGoals: db.prepare('SELECT * FROM user_goals WHERE user_id = ?'),
+
+    // Calculator data operations
+    upsertCalculatorData: db.prepare(`
+        INSERT INTO user_calculator_data (user_id, age, gender, height, height_inches, weight, activity_level, unit_system)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(user_id) DO UPDATE SET
+            age = excluded.age,
+            gender = excluded.gender,
+            height = excluded.height,
+            height_inches = excluded.height_inches,
+            weight = excluded.weight,
+            activity_level = excluded.activity_level,
+            unit_system = excluded.unit_system,
+            updated_at = CURRENT_TIMESTAMP
+    `),
+    getCalculatorData: db.prepare('SELECT * FROM user_calculator_data WHERE user_id = ?')
 };
 
 // Helper functions for data access
@@ -181,6 +213,17 @@ const dbHelpers = {
                 fat: 73
             };
 
+            // Get calculator data
+            const calculatorData = statements.getCalculatorData.get(userId) || {
+                age: 25,
+                gender: 'male',
+                height: 5.83,
+                height_inches: 10,
+                weight: 165,
+                activity_level: 'moderate',
+                unit_system: 'imperial'
+            };
+
             return {
                 customFoods,
                 dailyEntries,
@@ -189,6 +232,15 @@ const dbHelpers = {
                     protein: goals.protein,
                     carbs: goals.carbs,
                     fat: goals.fat
+                },
+                calculatorData: {
+                    age: calculatorData.age,
+                    gender: calculatorData.gender,
+                    height: calculatorData.height,
+                    heightInches: calculatorData.height_inches,
+                    weight: calculatorData.weight,
+                    activityLevel: calculatorData.activity_level,
+                    unitSystem: calculatorData.unit_system
                 }
             };
         } catch (error) {
@@ -198,7 +250,7 @@ const dbHelpers = {
     },
 
     saveUserData(userId, data) {
-        const { customFoods, dailyEntries, goals } = data;
+        const { customFoods, dailyEntries, goals, calculatorData } = data;
 
         try {
             // Start a transaction for atomic operations
@@ -211,6 +263,20 @@ const dbHelpers = {
                     goals.carbs,
                     goals.fat
                 );
+
+                // Update calculator data if provided
+                if (calculatorData) {
+                    statements.upsertCalculatorData.run(
+                        userId,
+                        calculatorData.age,
+                        calculatorData.gender,
+                        calculatorData.height,
+                        calculatorData.heightInches,
+                        calculatorData.weight,
+                        calculatorData.activityLevel,
+                        calculatorData.unitSystem
+                    );
+                }
 
                 // For custom foods and daily entries, we'll still do full replace
                 // since the frontend sends complete datasets

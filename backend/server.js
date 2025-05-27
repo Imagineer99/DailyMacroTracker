@@ -225,7 +225,7 @@ app.get('/api/user/data', authenticateToken, async (req, res) => {
 
 app.post('/api/user/data', authenticateToken, async (req, res) => {
   try {
-    const { customFoods, dailyEntries, goals } = req.body;
+    const { customFoods, dailyEntries, goals, calculatorData } = req.body;
     
     // Basic validation for data structure
     if (customFoods && !Array.isArray(customFoods)) {
@@ -238,6 +238,10 @@ app.post('/api/user/data', authenticateToken, async (req, res) => {
     
     if (goals && typeof goals !== 'object') {
       return res.status(400).json({ error: 'Goals must be an object' });
+    }
+    
+    if (calculatorData && typeof calculatorData !== 'object') {
+      return res.status(400).json({ error: 'Calculator data must be an object' });
     }
     
     // Validate goals if provided
@@ -278,10 +282,37 @@ app.post('/api/user/data', authenticateToken, async (req, res) => {
       }
     }
     
+    // Validate calculator data if provided
+    if (calculatorData) {
+      const { age, gender, height, heightInches, weight, activityLevel, unitSystem } = calculatorData;
+      if (age && (typeof age !== 'number' || age < 15 || age > 80)) {
+        return res.status(400).json({ error: 'Invalid age value' });
+      }
+      if (gender && !['male', 'female'].includes(gender)) {
+        return res.status(400).json({ error: 'Invalid gender value' });
+      }
+      if (height && (typeof height !== 'number' || height < 0)) {
+        return res.status(400).json({ error: 'Invalid height value' });
+      }
+      if (heightInches && (typeof heightInches !== 'number' || heightInches < 0 || heightInches > 11)) {
+        return res.status(400).json({ error: 'Invalid height inches value' });
+      }
+      if (weight && (typeof weight !== 'number' || weight < 0)) {
+        return res.status(400).json({ error: 'Invalid weight value' });
+      }
+      if (activityLevel && !['sedentary', 'light', 'moderate', 'active', 'veryActive'].includes(activityLevel)) {
+        return res.status(400).json({ error: 'Invalid activity level value' });
+      }
+      if (unitSystem && !['imperial', 'metric'].includes(unitSystem)) {
+        return res.status(400).json({ error: 'Invalid unit system value' });
+      }
+    }
+    
     const success = dbHelpers.saveUserData(req.user.id, {
       customFoods: customFoods || [],
       dailyEntries: dailyEntries || [],
-      goals: goals || { calories: 2200, protein: 165, carbs: 275, fat: 73 }
+      goals: goals || { calories: 2200, protein: 165, carbs: 275, fat: 73 },
+      calculatorData: calculatorData
     });
 
     if (!success) {

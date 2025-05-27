@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Edit3, ChevronRight, AlertCircle } from 'lucide-react';
 import { validateCalculatorData, validateGoals } from '../utils/validation';
+import { useAuth } from '../contexts/AuthContext';
+import { api } from '../utils/api';
 
 interface Goals {
   calories: number;
@@ -41,6 +43,7 @@ const activityMultipliers = {
 };
 
 const GoalsPage: React.FC<GoalsPageProps> = ({ goals, onUpdateGoals }) => {
+  const { isAuthenticated } = useAuth();
   const [editingGoals, setEditingGoals] = useState(false);
   const [newGoals, setNewGoals] = useState(goals);
   const [showCalculator, setShowCalculator] = useState(false);
@@ -57,6 +60,42 @@ const GoalsPage: React.FC<GoalsPageProps> = ({ goals, onUpdateGoals }) => {
   const [calculatorValidationErrors, setCalculatorValidationErrors] = useState<string[]>([]);
   const [goalsValidationErrors, setGoalsValidationErrors] = useState<string[]>([]);
 
+  // Load calculator data from backend when user is authenticated
+  useEffect(() => {
+    const loadCalculatorData = async () => {
+      if (isAuthenticated) {
+        try {
+          console.log('Loading calculator data for authenticated user...');
+          const response = await api.getUserData();
+          console.log('API response:', response);
+          if (response.success && response.data?.calculatorData) {
+            console.log('Setting calculator data:', response.data.calculatorData);
+            setCalculatorData(response.data.calculatorData);
+          } else {
+            console.log('No calculator data found in response');
+          }
+        } catch (error) {
+          console.error('Failed to load calculator data:', error);
+        }
+      } else {
+        // Load from localStorage for non-authenticated users
+        const savedCalculatorData = localStorage.getItem('calculatorData');
+        console.log('Loading from localStorage:', savedCalculatorData);
+        if (savedCalculatorData) {
+          try {
+            const parsedData = JSON.parse(savedCalculatorData);
+            console.log('Setting calculator data from localStorage:', parsedData);
+            setCalculatorData(parsedData);
+          } catch (error) {
+            console.error('Failed to parse saved calculator data:', error);
+          }
+        }
+      }
+    };
+
+    loadCalculatorData();
+  }, [isAuthenticated]);
+
   const updateGoals = () => {
     // Validate goals data
     const validation = validateGoals(newGoals);
@@ -72,7 +111,7 @@ const GoalsPage: React.FC<GoalsPageProps> = ({ goals, onUpdateGoals }) => {
     setEditingGoals(false);
   };
 
-  const calculateCalories = () => {
+  const calculateCalories = async () => {
     // Validate calculator data
     const validation = validateCalculatorData(calculatorData);
     if (!validation.isValid) {
@@ -82,6 +121,30 @@ const GoalsPage: React.FC<GoalsPageProps> = ({ goals, onUpdateGoals }) => {
     
     // Clear validation errors if validation passes
     setCalculatorValidationErrors([]);
+    
+    // Save calculator data to database if user is authenticated
+    if (isAuthenticated) {
+      try {
+        console.log('Saving calculator data for authenticated user:', calculatorData);
+        const currentUserData = await api.getUserData();
+        if (currentUserData.success && currentUserData.data) {
+          const dataToSave = {
+            ...currentUserData.data,
+            calculatorData: calculatorData
+          };
+          console.log('Data being saved:', dataToSave);
+          await api.saveUserData(dataToSave);
+          console.log('Calculator data saved successfully');
+        }
+      } catch (error) {
+        console.error('Failed to save calculator data:', error);
+        // Continue with calculation even if save fails
+      }
+    } else {
+      // Save to localStorage for non-authenticated users
+      console.log('Saving calculator data to localStorage:', calculatorData);
+      localStorage.setItem('calculatorData', JSON.stringify(calculatorData));
+    }
     
     // Mifflin-St Jeor Equation (requires metric units)
     let bmr;

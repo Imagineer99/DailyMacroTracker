@@ -36,6 +36,15 @@ interface UserData {
     carbs: number;
     fat: number;
   };
+  calculatorData?: {
+    age: number;
+    gender: 'male' | 'female';
+    height: number;
+    heightInches: number;
+    weight: number;
+    activityLevel: 'sedentary' | 'light' | 'moderate' | 'active' | 'veryActive';
+    unitSystem: 'imperial' | 'metric';
+  };
 }
 
 class ApiClient {
