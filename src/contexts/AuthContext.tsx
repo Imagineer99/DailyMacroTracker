@@ -82,7 +82,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   // Check and refresh token
   const checkTokenValidity = useCallback(async () => {
     const storedToken = localStorage.getItem('authToken');
-    
+
     if (!storedToken) {
       setLoading(false);
       return;
@@ -102,55 +102,27 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       if (!response.success) {
         console.log('Token invalid on server, logging out');
         logout();
+      } else {
+        // If backend verifies token, set user data and token
+        const storedUser = localStorage.getItem('authUser');
+        if (storedUser) {
+          setUser(JSON.parse(storedUser));
+        }
+        setToken(storedToken);
+        api.setAuthToken(storedToken);
       }
     } catch (error) {
       console.error('Error verifying token:', error);
       logout();
     }
-    
+
     setLoading(false);
   }, [isTokenExpired, logout]);
 
-  // Initialize auth state from localStorage
+  // Call checkTokenValidity once on mount
   useEffect(() => {
-    const initializeAuth = async () => {
-      const storedToken = localStorage.getItem('authToken');
-      const storedUser = localStorage.getItem('authUser');
-      
-      if (storedToken && storedUser) {
-        try {
-          const userData = JSON.parse(storedUser);
-          
-          // Check if token is expired
-          if (isTokenExpired(storedToken)) {
-            console.log('Token expired, logging out');
-            logout();
-            setLoading(false);
-            return;
-          }
-
-          // Set initial state
-          setToken(storedToken);
-          setUser(userData);
-          api.setAuthToken(storedToken);
-          
-          // Verify token with backend
-          const response = await api.getUserData();
-          if (!response.success) {
-            console.log('Token invalid on server, logging out');
-            logout();
-          }
-        } catch (error) {
-          console.error('Failed to initialize auth state:', error);
-          logout();
-        }
-      }
-      
-      setLoading(false);
-    };
-
-    initializeAuth();
-  }, []);
+    checkTokenValidity();
+  }, [checkTokenValidity]);
 
   // Set up token expiration check interval
   useEffect(() => {
@@ -167,7 +139,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   }, [token, isTokenExpired, logout]);
 
   const login = async (username: string, password: string): Promise<{ success: boolean; error?: string }> => {
-    // Client-side validation
     const validation = validateCredentials(username, password);
     if (!validation.valid) {
       return { success: false, error: validation.errors.join('. ') };
@@ -175,37 +146,33 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
     try {
       const response = await api.login(username.trim(), password);
-      
+
       if (response.success && response.data) {
         const { token: newToken, user: userData } = response.data;
-        
-        // Update auth state only after successful login
+
         setToken(newToken);
         setUser(userData);
         localStorage.setItem('authToken', newToken);
         localStorage.setItem('authUser', JSON.stringify(userData));
         api.setAuthToken(newToken);
-        
+
         return { success: true };
       } else {
-        // Return error from server
-        return { 
-          success: false, 
+        return {
+          success: false,
           error: response.error || 'Invalid username or password'
         };
       }
     } catch (error: any) {
       console.error('Login error:', error);
-      // Return error from server if available
-      return { 
-        success: false, 
+      return {
+        success: false,
         error: error.response?.data?.error || 'An unexpected error occurred. Please try again.'
       };
     }
   };
 
   const register = async (username: string, password: string): Promise<{ success: boolean; error?: string }> => {
-    // Client-side validation
     const validation = validateCredentials(username, password);
     if (!validation.valid) {
       return { success: false, error: validation.errors.join('. ') };
@@ -214,18 +181,18 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     try {
       setLoading(true);
       const response = await api.register(username.trim(), password);
-      
+
       if (response.success && response.data) {
         const { token: newToken, user: userData } = response.data;
-        
+
         setToken(newToken);
         setUser(userData);
-        
+
         localStorage.setItem('authToken', newToken);
         localStorage.setItem('authUser', JSON.stringify(userData));
-        
+
         api.setAuthToken(newToken);
-        
+
         return { success: true };
       } else {
         return { success: false, error: response.error || 'Registration failed' };
@@ -254,4 +221,4 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       {children}
     </AuthContext.Provider>
   );
-}; 
+};
