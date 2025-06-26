@@ -66,7 +66,7 @@ const authLimiter = rateLimit({
 // CORS configuration - now more restrictive since we're serving frontend
 app.use(cors({
   origin: process.env.NODE_ENV === 'production'
-    ? 'https://your-production-frontend.com'  // <-- put your actual production frontend URL here
+    ? true  // Allow requests from the same origin in production
     : ['http://localhost:5173', 'http://localhost:3001'],
   credentials: true
 }));
