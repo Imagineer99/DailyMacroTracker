@@ -4,7 +4,13 @@ const fs = require('fs');
 const crypto = require('crypto');
 
 // Generate a random encryption key if not exists
-const KEY_PATH = path.join(__dirname, 'data', '.key');
+const KEY_DIR = path.join(__dirname, 'data');
+const KEY_PATH = path.join(KEY_DIR, '.key');
+
+if (!fs.existsSync(KEY_DIR)) {
+    fs.mkdirSync(KEY_DIR, { recursive: true });
+}
+
 let encryptionKey;
 
 if (!fs.existsSync(KEY_PATH)) {
