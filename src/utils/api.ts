@@ -6,7 +6,7 @@ const BASE_URL = process.env.NODE_ENV === 'production'
   : window.location.hostname === 'localhost' 
     ? 'http://localhost:3001' 
     : window.location.protocol === 'https:' 
-      ? 'https://nutritiontracker.fit/api'
+      ? '' // Use relative path for HTTPS
       : 'http://167.99.41.134:3001';
 
 interface ApiResponse<T = any> {
