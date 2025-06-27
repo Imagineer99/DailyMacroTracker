@@ -1,7 +1,13 @@
 import axios, { AxiosInstance, AxiosResponse } from 'axios';
 
 // Base URL for API requests - use relative path so it works from the same server
-const BASE_URL = process.env.NODE_ENV === 'production' ? '' : 'http://167.99.41.134:3001';
+const BASE_URL = process.env.NODE_ENV === 'production' 
+  ? '' 
+  : window.location.hostname === 'localhost' 
+    ? 'http://localhost:3001' 
+    : window.location.hostname === '167.99.41.134' 
+      ? 'http://167.99.41.134:3001' 
+      : 'http://167.99.41.134:3001';
 
 interface ApiResponse<T = any> {
   success: boolean;

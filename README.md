@@ -190,6 +190,33 @@ npm run admin
 
 The current SQLite implementation is suitable for the initial user base. When needed, the database can be migrated to PostgreSQL for increased scalability without major code changes.
 
+## Development Environment Setup
+
+### Current Development Configuration
+Currently, the application is configured for development with:
+- Frontend API points to the backend server on a remote droplet (`http://167.99.41.134:3001`)
+- Backend CORS allows specific origins including the development server
+
+### Production Deployment Notes
+**⚠️ Important:** Before proper production deployment, the following should be addressed:
+
+1. **API Configuration**
+   - Update `src/utils/api.ts` to use proper environment-based URLs
+   - Remove hardcoded IP addresses
+   - Configure for both local development and production environments
+
+2. **CORS Configuration**
+   - Update `backend/server.js` to use proper origin configuration
+   - Remove development-specific origins in production
+   - Implement proper CORS security for production domain
+
+3. **Build Process**
+   - Set up proper build pipeline for frontend
+   - Configure server to serve static frontend files
+   - Implement proper environment variable management
+
+These changes are necessary before deploying to a production environment or onboarding additional developers.
+
 ## Contributing
 
 Please read [CONTRIBUTING.md](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.
