@@ -67,7 +67,9 @@ const authLimiter = rateLimit({
 app.use(cors({
   origin: process.env.NODE_ENV === 'production'
     ? true  // Allow requests from the same origin in production
-    : ['http://localhost:5173', 'http://localhost:3001', 'http://167.99.41.134:5173', 'http://nutritiontracker.fit', 'http://www.nutritiontracker.fit'],
+    : ['http://localhost:5173', 'http://localhost:3001', 'http://167.99.41.134:5173', 
+       'http://nutritiontracker.fit', 'http://www.nutritiontracker.fit',
+       'https://nutritiontracker.fit', 'https://www.nutritiontracker.fit'],
   credentials: true
 }));
 
